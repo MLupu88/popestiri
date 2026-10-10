@@ -1,0 +1,10 @@
+{
+ "id":"fixture-article-1","clusterId":"fixture-cluster-1","section":"CE TREBUIE SĂ ȘTII AZI",
+ "headline":"EXEMPLU FICTIV: verificarea unei afirmații","deck":"Material exclusiv pentru testarea contractelor.",
+ "body":"Acest text nu relatează un eveniment real. Testăm asocierea dintre afirmație, dovezi și verdict, fără să confundăm selectarea articolului cu validarea faptelor.",
+ "photo":{"id":"fixture-photo","sourceUrl":"https://example.org/fixture-photo","assetPath":"fixture-only/no-real-photo.jpg","credit":"Fixture, nu fotografie publicabilă","caption":"EXEMPLU FICTIV","rights":"unknown","rightsBasis":"Nicio fotografie reală furnizată pentru acest fixture","width":1200,"height":800,"illustrative":true},
+ "sourceUrls":["https://example.org/fixture-source"],
+ "claims":[{"id":"fixture-claim","clusterId":"fixture-cluster-1","text":"Afirmație fictivă, folosită numai în teste.","verificationPriority":50,"sensitive":false}],
+ "verifications":[{"claimId":"fixture-claim","verdict":"NECONFIRMAT","explanation":"Datele de test nu constituie dovezi factuale.","evidenceIds":[],"checkedAt":"2026-10-09T03:15:00Z","reviewStatus":"policy_accepted"}],
+ "evidence":[],"verificationRequired":true,"factualClaimsReviewed":true,"qrTarget":"https://example.org/fixture-edition/fixture-story","revision":1
+}

@@ -1,0 +1,13 @@
+{
+  "name": "popestiri", "version": "0.1.0", "private": true, "type": "module",
+  "engines": {"node": ">=24"},
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.ts",
+    "demo": "node apps/worker/demo.ts",
+    "db:migrate": "node packages/db/migrate.ts",
+    "start:api": "node apps/web/server.ts"
+  },
+  "dependencies": {"zod": "^4.0.0", "pg": "^8.0.0", "drizzle-orm": "^0.44.0"},
+  "devDependencies": {"typescript": "^5.9.0", "@types/node": "^24.0.0", "@types/pg": "^8.0.0", "@electric-sql/pglite": "^0.3.0"}
+}
