@@ -1,0 +1,65 @@
+name: popestiri-production
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: popestiri
+      POSTGRES_USER: popestiri
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U popestiri -d popestiri"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    image: popestiri-app:${APP_VERSION:-local}
+    build: .
+    command: ["node", "packages/db/migrate.ts"]
+    environment:
+      DATABASE_URL: postgresql://popestiri:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/popestiri
+    networks: [backend]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: popestiri-app:${APP_VERSION:-local}
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3100
+      OPERATOR_TOKEN: ${OPERATOR_TOKEN:?Set OPERATOR_TOKEN}
+      DATABASE_URL: postgresql://popestiri:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/popestiri
+      PRINT_ENABLED: "false"
+    networks:
+      backend:
+      proxy:
+        aliases: [popestiri-api]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres-data:
+
+networks:
+  backend:
+    internal: true
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-n8n_network}

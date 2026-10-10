@@ -11,4 +11,4 @@ const server=createServer((req,res)=>{
  if(req.url==='/api/providers'&&req.method==='GET'){res.end(JSON.stringify(providerConfig));return;}
  res.writeHead(404);res.end('{"error":"not_implemented"}');
 });
-server.listen(Number(process.env.PORT??3100),'127.0.0.1',()=>console.log(JSON.stringify({address:server.address()})));
+server.listen(Number(process.env.PORT??3100),process.env.HOST??'127.0.0.1',()=>console.log(JSON.stringify({address:server.address()})));
