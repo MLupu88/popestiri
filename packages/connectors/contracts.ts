@@ -7,7 +7,7 @@ export interface TranscriptProvider {transcribe(mediaUrl:string,language:string,
 export interface ResearchProvider {research(claim:z.infer<typeof Claim>,context:ProviderContext):Promise<z.infer<typeof Evidence>[]>}
 export interface EditorialProvider {compareEvidence(claim:z.infer<typeof Claim>,evidence:z.infer<typeof Evidence>[],context:ProviderContext):Promise<Verification>}
 export const providerConfig = [
-  {id:'rss',keys:[],status:'interface_only'},
+  {id:'rss',keys:[],status:'implemented_manual'},
   {id:'google-trends',keys:[],status:'interface_only'},
   {id:'youtube',keys:['YOUTUBE_API_KEY'],status:'interface_only'},
   {id:'tiktok',keys:['TIKTOK_PROVIDER','TIKTOK_API_KEY'],status:'provider_to_select'},

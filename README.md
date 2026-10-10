@@ -1,51 +1,53 @@
 # PopeȘtiri
 
-Ziar zilnic automat în română. Ținta: colectare → grupare → selecție → verificare → redactare → fotografii → PDF A4 → imprimanta locală, în fiecare dimineață.
+Ziar zilnic automat în română. Ținta: colectare → grupare → selecție → verificare → redactare → fotografii → PDF A4 → imprimanta locală.
 
-## Starea reală: M0.1 Foundation
+## Starea reală: M0.2 — admin și RSS
 
-Acest repository conține cod TypeScript executabil, contracte Zod, prima migrare PostgreSQL, validări editoriale, un mecanism de reluare a etapelor și teste. Nu este vechiul prototip HTML.
+Adminul oferă autentificare de operator, dashboard din PostgreSQL, configurarea surselor,
+import manual RSS/Atom, lista articolelor și inventarul integrărilor.
+Paginile folosesc serverul Node existent și CSS separat; Next.js nu este încă introdus.
+Fotografiile găsite în flux sunt păstrate ca referințe cu drepturi necunoscute.
 
-Funcționează acum: parsarea și validarea articolului, legăturile claim/evidence/verdict, verificarea fotografiei declarate, compunerea ediției JSON, migrarea testată pe PostgreSQL embedded (PGlite), reluarea etapelor în DB, API minimal protejat cu token și contractele pentru print. Nu există încă interfață Next.js, colectare live, apeluri AI, fotografii descărcate, renderer PDF, scheduler sau trimitere CUPS.
+Există și contractele Zod, politica editorială, migrarea PostgreSQL și mecanismul de reluare a etapelor.
+Nu există încă evaluare AI, selecție automată, renderer PDF, QR, scheduler sau trimitere CUPS.
 
-Node 24+ și pnpm sunt necesare. Versiunile efective sunt fixate în pnpm-lock.yaml.
+## Pornire locală
+
+Node 24+ și pnpm. PostgreSQL trebuie să fie pornit, migrarea aplicată,
+iar DATABASE_URL și OPERATOR_TOKEN configurate în fișierul local `.env`.
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm test
-pnpm demo
+PORT=0 node --env-file=.env apps/web/server.ts
 ```
 
-Demo produce `output/edition.fixture.json`. Este blocat intenționat: fixture-ul nu are o fotografie reală cu utilizare aprobată. Nu apelează API-uri și nu imprimă nimic. Testele acoperă separat traseul validat, care nu este echivalent cu o ediție ready pentru print.
+PORT=0 cere un port liber. Deschide adresa localURL afișată la pornire.
+Vezi [ghidul admin](docs/admin.md) pentru autentificare și detaliile importului.
+Compose-ul local poate aloca dinamic portul PostgreSQL; DATABASE_URL trebuie să corespundă
+portului raportat de `docker compose port db 5432` după recrearea containerului.
 
-## PostgreSQL local
+## Producție
 
-```sh
-cp .env.example .env
-# Schimbă POSTGRES_PASSWORD și DATABASE_URL cu aceeași parolă locală.
-docker compose --env-file .env up -d db
-node --env-file=.env packages/db/migrate.ts
-```
+Flux: Mac → GitHub → Hetzner. Folosește exclusiv compose.production.yaml.
+API-ul ascultă în container pe 3100; PostgreSQL nu publică port pe server.
+Nginx Proxy Manager trimite domeniul către popestiri-api:3100.
+[Instrucțiuni de deploy](docs/deployment.md).
 
-Compose este destinat dezvoltării locale. Nu îl executa ca atare pe Hetzner: acolo trebuie pregătită configurația de rețea, port și volume în contextul serviciilor existente. Migrarea folosește tranzacție, lock și checksum; nu modificăm retroactiv migrările aplicate.
+`/health` verifică procesul. `/ready` verifică DB și migrarea.
+`/api/providers` necesită Authorization Bearer și nu expune secrete.
 
-## API de fundație
+## Demo editorial
 
-Setează OPERATOR_TOKEN la minimum 24 de caractere în `.env`, apoi:
+`pnpm demo` produce output/edition.fixture.json. Este blocat intenționat:
+fixture-ul nu are fotografie reală aprobată. Nu apelează servicii și nu imprimă.
 
-```sh
-node --env-file=.env apps/web/server.ts
-```
+## Ce urmează
 
-Ascultă doar pe 127.0.0.1:3100. `GET /health` verifică procesul, nu DB. `GET /api/providers` cere header Authorization Bearer și arată numai starea implementării conectorilor. Tokenul protejează administrarea fără un sistem de conturi publice.
+Evaluarea și gruparea articolelor, verificarea cu dovezi, fotografii utilizabile,
+prima ediție PDF A4 și apoi automatizarea zilnică împreună cu agentul de print.
+Sursele sociale și ceilalți furnizori vor fi conectați incremental.
 
-## Surse și configurare
-
-RSS, Google Trends RO, YouTube, TikTok, Deepgram, Tavily și DeepSeek fac parte din produs. Instagram este extensie prevăzută; pentru Facebook accesul trebuie evaluat. Interfețele sunt în packages/connectors; niciun provider nu este prezentat ca live. Cheile necesare sunt în .env.example, modelele DeepSeek se configurează separat. Pinterest nu este cerință.
-
-## Următorul slice
-
-Ingestie RSS reală, stocată în PostgreSQL și vizibilă prin API, cu deduplicare, erori izolate per sursă și usage/run logs. În paralel cu extinderea fluxului: prima probă PDF A4 cu fotografii reale utilizabile. UI Next.js va expune datele și acțiunile reale ale acestor servicii.
-
-Vezi docs/architecture.md pentru deciziile complete și docs/print-spec.md pentru macheta tipografică.
+Vezi [arhitectura](docs/architecture.md) și [specificația de print](docs/print-spec.md).
