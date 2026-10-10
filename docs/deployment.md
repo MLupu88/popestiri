@@ -42,3 +42,27 @@ Folosește un checkout curat al commitului testat și APP_VERSION egal cu acel S
 Imaginea precedentă poate fi refolosită numai dacă schema rămâne compatibilă;
 nu presupune că revenirea codului inversează migrările.
 Prima migrare este tranzacțională, cu blocare și checksum.
+
+## Workerul RSS batch
+
+Local, după pornirea PostgreSQL și aplicarea migrării:
+
+```sh
+node --env-file=.env apps/worker/ingest.ts
+# `pnpm ingest` este echivalent dacă variabilele sunt deja exportate în mediu.
+```
+
+Workerul este one-shot și nu configurează cron. Afișează un singur rezumat JSON cu sursele
+încercate/reușite/eșuate, articolele citite, articolele noi, duplicatele și timpul scurs.
+Codul de ieșire este `1` dacă cel puțin o sursă a eșuat.
+
+În compose-ul de producție, după ce serviciile `db`, `migrate` și `api` sunt deja gestionate de
+stack, rulează același container fără a porni un scheduler:
+
+```sh
+docker compose --env-file .env.production -f compose.production.yaml run --rm api node apps/worker/ingest.ts
+```
+
+Comanda folosește `DATABASE_URL` și rețeaua internă deja definite pentru serviciul `api`.
+Nu modifica `.env.production`, nu copia tokenuri în argumente și nu rula comanda împotriva
+unei baze de producție în timpul dezvoltării.

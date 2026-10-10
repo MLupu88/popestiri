@@ -2,12 +2,15 @@
 
 Ziar zilnic automat în română. Ținta: colectare → grupare → selecție → verificare → redactare → fotografii → PDF A4 → imprimanta locală.
 
-## Starea reală: M0.2 — admin și RSS
+## Starea reală: M0.3A — import RSS multi-sursă
 
 Adminul oferă autentificare de operator, dashboard din PostgreSQL, configurarea surselor,
 import manual RSS/Atom, lista articolelor și inventarul integrărilor.
 Paginile folosesc serverul Node existent și CSS separat; Next.js nu este încă introdus.
 Fotografiile găsite în flux sunt păstrate ca referințe cu drepturi necunoscute.
+Workerul batch importă toate sursele RSS active, cu maximum două fluxuri simultan;
+un flux eșuat nu oprește celelalte surse. Importurile individuale sunt jurnalizate în
+`audit_events` și păstrează articolele ca neevaluate editorial.
 
 Există și contractele Zod, politica editorială, migrarea PostgreSQL și mecanismul de reluare a etapelor.
 Nu există încă evaluare AI, selecție automată, renderer PDF, QR, scheduler sau trimitere CUPS.
@@ -26,6 +29,7 @@ PORT=0 node --env-file=.env apps/web/server.ts
 
 PORT=0 cere un port liber. Deschide adresa localURL afișată la pornire.
 Vezi [ghidul admin](docs/admin.md) pentru autentificare și detaliile importului.
+Pentru importul batch vezi [ghidul workerului](docs/worker.md).
 Compose-ul local poate aloca dinamic portul PostgreSQL; DATABASE_URL trebuie să corespundă
 portului raportat de `docker compose port db 5432` după recrearea containerului.
 

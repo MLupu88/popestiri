@@ -1,6 +1,8 @@
 import {createHash, randomUUID} from 'node:crypto';
 import type pg from 'pg';
-import {downloadFeed, parseFeed, feedURL, type FeedItem} from '../../packages/connectors/rss.ts';
+import {feedURL} from '../../packages/connectors/rss.ts';
+import {importSource, saveFeedItems} from '../../packages/ingestion/rss.ts';
+export {importSource, saveFeedItems} from '../../packages/ingestion/rss.ts';
 
 export async function dashboard(pool: pg.Pool) {
   const counts = (await pool.query(`SELECT
@@ -37,33 +39,4 @@ export async function setSourceEnabled(pool: pg.Pool, id: string, enabled: boole
   ) INSERT INTO audit_events(id,entity_type,entity_id,action,actor,reason)
     SELECT $3,'source',id,$4,'operator','Stare modificată din admin' FROM changed RETURNING entity_id`,[id,enabled,randomUUID(),enabled?'source_enabled':'source_disabled']);
   if(!result.rowCount) throw new Error('Sursa nu există.');
-}
-export async function saveFeedItems(pool: pg.Pool, sourceId: string, items: FeedItem[]) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const source = (await client.query(`SELECT enabled FROM sources WHERE id=$1 AND platform='rss' FOR UPDATE`,[sourceId])).rows[0];
-    if(!source?.enabled) throw new Error('Sursa este dezactivată sau nu există.');
-    let added = 0;
-    for(const item of items) {
-      const result = await client.query(`INSERT INTO source_items(id,source_id,canonical_url,title,excerpt,published_at,fetched_at,metadata)
-        VALUES($1,$2,$3,$4,$5,$6,now(),$7) ON CONFLICT(source_id,canonical_url) DO NOTHING`,
-        [randomUUID(),sourceId,item.url,item.title,item.excerpt,item.publishedAt,JSON.stringify({photo:item.photo,verificationStatus:'not_started',ingestion:'rss'})]);
-      added += result.rowCount ?? 0;
-    }
-    await client.query(`UPDATE sources SET config=config || $2::jsonb WHERE id=$1`,[sourceId,JSON.stringify({lastImportAt:new Date().toISOString(),lastImportStatus:'ok',lastImportAdded:added,lastImportSeen:items.length})]);
-    await client.query(`INSERT INTO audit_events(id,entity_type,entity_id,action,actor,reason,after_value) VALUES($1,'source',$2,'rss_import','operator','Import manual RSS',$3)`,[randomUUID(),sourceId,JSON.stringify({added,seen:items.length})]);
-    await client.query('COMMIT'); return {added,seen:items.length};
-  } catch(error) {await client.query('ROLLBACK');throw error;} finally {client.release();}
-}
-export async function importSource(pool: pg.Pool, id: string) {
-  const source = (await pool.query(`SELECT config,enabled FROM sources WHERE id=$1 AND platform='rss'`,[id])).rows[0];
-  if(!source?.enabled) throw new Error('Sursa este dezactivată sau nu există.');
-  try {
-    const feed = await downloadFeed(source.config.url);
-    return await saveFeedItems(pool,id,parseFeed(feed.xml,feed.url));
-  } catch(error) {
-    await pool.query(`UPDATE sources SET config=config || $2::jsonb WHERE id=$1`,[id,JSON.stringify({lastImportAt:new Date().toISOString(),lastImportStatus:'error'})]);
-    throw error;
-  }
 }

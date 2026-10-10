@@ -5,7 +5,8 @@ Sursa de produs: brief-ul original din [main] actual.verificat/Pasted text.txt, 
 ## Componente
 
 - apps/web: API și, ulterior, Next.js pentru admin și paginile publice accesate prin QR.
-- apps/worker: pipeline programat; proces separat de cererile web.
+- apps/worker: pipeline programat; proces separat de cererile web. În M0.3A există workerul
+  one-shot de import RSS; schedulerul rămâne neimplementat.
 - apps/print-agent: agent macOS/Linux care preia ediția ready și folosește CUPS/lp.
 - packages/core: contracte Zod, reguli editoriale și selecție.
 - packages/db: PostgreSQL, Drizzle, migrări și checkpoint-uri.
@@ -22,6 +23,10 @@ Nu există ponderi numerice de ranking aprobate; nu inventăm o formulă prezent
 ## Automatizare
 
 Ținta configurabilă: 05:15 pornire, 06:30 ediție disponibilă, aproximativ 07:00 print. Europe/Bucharest gestionează DST. Schedulerul poate fi n8n sau alt trigger; regulile stau în cod. O singură execuție logică per dată/regiune și revizie, cu retry pe etape. Schedulerul nu este încă implementat.
+
+Importul RSS batch folosește serviciul comun cu adminul, citește doar sursele active din PostgreSQL,
+ține un advisory lock PostgreSQL pentru a evita două batch-uri simultane și limitează concurența la două
+fluxuri. Un eșec este înregistrat per sursă și nu oprește celelalte importuri.
 
 Pipeline_runs și stage_runs permit checkpoint și reluare. Implementarea curentă folosește lease de 5 minute; etapele lungi vor necesita heartbeat. Un apel extern poate fi repetat dacă procesul moare înainte să salveze rezultatul; nu pretindem exact-once pentru API-uri. Introducem dedup și limite de consum la conectori. UsageLedger păstrează costuri necunoscute ca null, nu ca zero.
 
