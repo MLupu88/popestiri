@@ -11,6 +11,7 @@ COPY --from=dependencies --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node package.json ./
 COPY --chown=node:node apps ./apps
 COPY --chown=node:node packages ./packages
+COPY --chown=node:node assets ./assets
 USER node
 EXPOSE 3100
 CMD ["node", "apps/web/server.ts"]
