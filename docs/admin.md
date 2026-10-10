@@ -45,12 +45,20 @@ Maximum 2 MB, 15 secunde, 3 redirecturi și 100 de articole valide din primele 2
 Fiecare destinație este verificată înaintea conexiunii; IP-ul IPv4 public este fixat pentru acea conexiune.
 Sunt blocate localhost, rețele private/speciale, IPv6, porturi personalizate, URL-uri cu credențiale și XML cu DTD/entity declarations.
 Codificarea XML acceptată este UTF-8; fluxurile comprimate împotriva cererii identity nu sunt acceptate.
-Două importuri pot rula simultan per proces. Importurile nu au încă joburi persistente sau programare automată.
+Importul manual folosește serviciul comun cu workerul batch. Două importuri manuale pot rula simultan per proces.
+Workerul batch folosește maximum două surse simultan, ignoră sursele dezactivate și izolează erorile unei publicații.
+Importurile nu au încă joburi persistente sau programare automată.
 Tranzacția DB salvează articolele, rezultatul importului și auditul împreună.
 Același URL din aceeași sursă nu se inserează de două ori. Gruparea aceluiași eveniment între publicații urmează separat.
 Importul repetat nu suprascrie textul original deja salvat.
 Fotografiile din RSS sunt doar referințe cu rightsStatus=unknown. Nu sunt descărcate sau aprobate automat.
 Nu sunt preluate imagini din paginile articolelor dacă lipsesc din flux.
+
+Rularea batch și istoricul
+
+Workerul scrie câte un eveniment `rss_import` pentru fiecare succes și `rss_import_failed`
+pentru fiecare eșec în `audit_events`. Sursa păstrează și ultimul rezultat în `config`.
+Rezultatul nu schimbă starea editorială și nu aprobă drepturile fotografiilor.
 
 ## Ce nu este încă implementat
 
