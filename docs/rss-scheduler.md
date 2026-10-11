@@ -2,9 +2,9 @@
 
 The hourly scheduler is an active host-level systemd timer on Hetzner. It starts the existing one-shot
 worker in a disposable Docker container; it does not add a scheduler process, queue,
-database, or application server. The worker's PostgreSQL advisory lock still prevents
-overlapping batch runs, and its existing deduplication, source isolation, and provenance
-rules remain unchanged.
+database, or application server. The worker's PostgreSQL advisory locks prevent
+overlapping RSS and discovery batches, and the existing RSS deduplication, source isolation,
+and provenance rules remain unchanged. Discovery runs after RSS with its own failure boundary.
 
 The service is deliberately `Type=oneshot` and has no `Restart=` policy. A failed run is
 visible in systemd and journald, while the next normal timer event is the next attempt.
@@ -44,9 +44,10 @@ sudo systemctl start popestiri-rss-ingest.service
 sudo systemctl status --no-pager popestiri-rss-ingest.service
 ```
 
-The worker's operational JSON summary is written to the journal. A successful run exits
+The worker's operational JSON summaries are written to the journal. A successful run exits
 0. A run with one or more source failures exits 1 after preserving successful sources;
-the JSON summary has `event: "rss_batch_import"` and `sourcesFailed > 0`. Treat this as a
+the RSS JSON summary has `event: "rss_batch_import"` and `sourcesFailed > 0`. Discovery also emits
+`event: "discovery_batch"`; its `status` may be `partial` when YouTube credentials are absent. Treat this as a
 source-level/partial batch failure: inspect the affected source configuration or provider,
 then allow the next hourly run or perform one deliberate manual retry.
 

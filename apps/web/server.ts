@@ -3,8 +3,8 @@ import {readFile} from 'node:fs/promises';
 import pg from 'pg';
 import {providerConfig} from '../../packages/connectors/contracts.ts';
 import {equal, createSession, validSession, sessionCookie, readSession, csrfToken} from './auth.ts';
-import {login, layout, overview, sourcesView, articlesView, integrationsView, socialIntakeView, socialIntakeDetailView} from './views.ts';
-import {dashboard, listSources, listArticles, addSource, setSourceEnabled, importSource, addSocialSubmission, listSocialIntake, getSocialIntake, setSocialStatus, updateSocialEnrichment, socialPlatforms, socialStatuses, SocialInputError} from './store.ts';
+import {login, layout, overview, sourcesView, articlesView, discoveriesView, integrationsView, socialIntakeView, socialIntakeDetailView} from './views.ts';
+import {dashboard, listSources, listArticles, listDiscoveries, addSource, setSourceEnabled, importSource, addSocialSubmission, listSocialIntake, getSocialIntake, setSocialStatus, updateSocialEnrichment, setDiscoveryStatus, socialPlatforms, socialStatuses, discoveryKinds, discoveryStatuses, SocialInputError} from './store.ts';
 
 const token = process.env.OPERATOR_TOKEN;
 if(!token || token.length<24) throw new Error('Set OPERATOR_TOKEN (at least 24 characters)');
@@ -14,7 +14,7 @@ const pool = new pg.Pool({connectionString:process.env.DATABASE_URL,max:4,connec
 pool.on('error',()=>console.error('Database pool connection error'));
 let attempts = 0, resetAt = Date.now()+15*60*1000;
 const importing = new Set<string>();
-const messages: Record<string,string> = {added:'Sursa a fost adăugată. Poți importa primele articole.',duplicate:'Acest flux este deja configurat.',updated:'Starea sursei a fost actualizată.',imported:'Import încheiat. Rezultatul apare lângă sursă.',failed:'Importul nu a reușit. Verifică URL-ul fluxului și disponibilitatea sursei HTTPS.',invalid:'Verifică datele introduse și adresa HTTPS Facebook, TikTok sau YouTube.',busy:'Un import este deja în curs. Reîncarcă pagina în câteva secunde.',social_added:'Semnalul social a fost adăugat.',social_duplicate:'Linkul exista deja. Noua proveniență a fost păstrată.',social_updated:'Completarea manuală a fost salvată.',social_status:'Starea editorială a fost actualizată.'};
+const messages: Record<string,string> = {added:'Sursa a fost adăugată. Poți importa primele articole.',duplicate:'Acest flux este deja configurat.',updated:'Starea sursei a fost actualizată.',imported:'Import încheiat. Rezultatul apare lângă sursă.',failed:'Importul nu a reușit. Verifică URL-ul fluxului și disponibilitatea sursei HTTPS.',invalid:'Verifică datele introduse și adresa HTTPS Facebook, TikTok sau YouTube.',busy:'Un import este deja în curs. Reîncarcă pagina în câteva secunde.',social_added:'Semnalul social a fost adăugat.',social_duplicate:'Linkul exista deja. Noua proveniență a fost păstrată.',social_updated:'Completarea manuală a fost salvată.',social_status:'Starea editorială a fost actualizată.',discovery_status:'Starea descoperirii a fost actualizată.'};
 function send(res: ServerResponse, code: number, text: string, type='text/html; charset=utf-8') {res.writeHead(code,{'Content-Type':type});res.end(text);}
 function json(res: ServerResponse, code: number, value: unknown) {send(res,code,JSON.stringify(value),'application/json; charset=utf-8');}
 function redirect(res: ServerResponse, path: string) {res.writeHead(303,{Location:path});res.end();}
@@ -35,9 +35,9 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url ?? '/', 'http://internal');
   const path = url.pathname;
   const get = req.method==='GET';
-  if(path==='/health' && get) {json(res,200,{status:'ok',milestone:'M0.3B',databaseChecked:false});return;}
+  if(path==='/health' && get) {json(res,200,{status:'ok',milestone:'M0.3C.1',databaseChecked:false});return;}
   if(path==='/ready' && get) {
-    try {const result = await pool.query("SELECT id FROM schema_migrations WHERE id='0002'");if(!result.rowCount) throw new Error();json(res,200,{status:'ok',databaseChecked:true});}
+    try {const result = await pool.query("SELECT id FROM schema_migrations WHERE id='0003'");if(!result.rowCount) throw new Error();json(res,200,{status:'ok',databaseChecked:true});}
     catch {json(res,503,{status:'unavailable',databaseChecked:true});} return;
   }
   if(get && path==='/assets/admin.css') {send(res,200,await readFile(new URL('./public/admin.css',import.meta.url),'utf8'),'text/css; charset=utf-8');return;}
@@ -85,6 +85,11 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
       } catch(error) {if(error instanceof SocialInputError) {redirect(res,'/admin/social-intake?notice=invalid');return;} throw error;}
       return;
     }
+    const discoveryMatch=path.match(/^\/admin\/discoveries\/(discovery-[a-f0-9]{32})\/status$/);
+    if(discoveryMatch) {
+      await setDiscoveryStatus(pool,discoveryMatch[1],data.get('status')??'');
+      redirect(res,`/admin/discoveries?notice=discovery_status`);return;
+    }
     const socialMatch=path.match(/^\/admin\/social-intake\/(social-[a-f0-9]{32})\/(status|enrichment)$/);
     if(socialMatch) {
       const [,id,action]=socialMatch;
@@ -110,6 +115,12 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
   if(!get) {res.setHeader('Allow','GET, POST');send(res,405,'Metodă neacceptată.');return;}
   const notice=messages[url.searchParams.get('notice')??'']??'';
   if(path==='/admin') {send(res,200,layout('overview','Ediția zilei','Starea redacției, de la sursele colectate la ziarul pregătit pentru print.',overview(await dashboard(pool)),csrf));return;}
+  if(path==='/admin/discoveries') {
+    const kind=discoveryKinds.includes((url.searchParams.get('kind')??'') as typeof discoveryKinds[number]) ? url.searchParams.get('kind')! : '';
+    const status=discoveryStatuses.includes((url.searchParams.get('status')??'') as typeof discoveryStatuses[number]) ? url.searchParams.get('status')! : '';
+    const page=Math.min(10000,Math.max(1,Math.floor(Number(url.searchParams.get('page'))||1)));
+    send(res,200,layout('discoveries','Descoperiri','Semnale colectate automat și manual, cu proveniență și limitări la vedere.',discoveriesView(await listDiscoveries(pool,kind,status,page),kind,status,csrf),csrf,notice));return;
+  }
   if(path==='/admin/sources') {send(res,200,layout('sources','Surse RSS','Alege publicațiile din care colectăm materialul pentru ziar.',sourcesView(await listSources(pool),csrf),csrf,notice));return;}
   if(path==='/admin/articles') {
     const source=(url.searchParams.get('source')??'').slice(0,100);
