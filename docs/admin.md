@@ -48,7 +48,7 @@ Sunt blocate localhost, rețele private/speciale, IPv6, porturi personalizate, U
 Codificarea XML acceptată este UTF-8; fluxurile comprimate împotriva cererii identity nu sunt acceptate.
 Importul manual folosește serviciul comun cu workerul batch. Două importuri manuale pot rula simultan per proces.
 Workerul batch folosește maximum două surse simultan, ignoră sursele dezactivate și izolează erorile unei publicații.
-Importurile nu au încă joburi persistente sau programare automată.
+Aplicația nu pornește un scheduler intern și nu are joburi RSS persistente; pe Hetzner, timerul systemd `popestiri-rss-ingest.timer` este activ și pornește workerul RSS orar.
 Tranzacția DB salvează articolele, rezultatul importului și auditul împreună.
 Același URL din aceeași sursă nu se inserează de două ori. Gruparea aceluiași eveniment între publicații urmează separat.
 Importul repetat nu suprascrie textul original deja salvat.
@@ -64,7 +64,7 @@ Rezultatul nu schimbă starea editorială și nu aprobă drepturile fotografiilo
 ## Ce nu este încă implementat
 
 Scoruri editoriale, verificare cu DeepSeek/Tavily, selecția articolelor în ediție,
-aprobarea și prelucrarea imaginilor, generarea PDF A4, QR, cron și agentul de print.
+aprobarea și prelucrarea imaginilor, generarea PDF A4, QR și agentul de print.
 Nici prezența unei chei în mediu, nici importul RSS nu înseamnă că aceste etape funcționează.
 
 ## Verificări

@@ -67,6 +67,6 @@ Comanda folosește `DATABASE_URL` și rețeaua internă deja definite pentru ser
 Nu modifica `.env.production`, nu copia tokenuri în argumente și nu rula comanda împotriva
 unei baze de producție în timpul dezvoltării.
 
-Pentru instalarea rulării automate orare, verificarea jurnalelor, oprire și rollback, vezi
-[runbook-ul schedulerului RSS](rss-scheduler.md). Unitățile systemd trebuie instalate numai
-după verificarea revision-ului aprobat pe Hetzner; acest repository nu modifică serverul.
+Rularea automată orară este activă pe Hetzner prin unitățile systemd descrise în
+[runbook-ul schedulerului RSS](rss-scheduler.md), care acoperă verificarea jurnalelor,
+oprirea și rollback-ul. Acest repository nu modifică serverul.

@@ -8,6 +8,9 @@ export const socialPlatforms = ['facebook','tiktok','youtube'] as const;
 export type SocialPlatform = typeof socialPlatforms[number];
 export const socialStatuses = ['new','reviewing','investigating','closed'] as const;
 export type SocialStatus = typeof socialStatuses[number];
+export class SocialInputError extends Error {
+  constructor(message: string) {super(message);this.name='SocialInputError';}
+}
 export type SocialEnrichment = {
   claimDescription: string;
   investigationReason: string;
@@ -19,41 +22,86 @@ export type SocialEnrichment = {
 
 const socialLabels: Record<SocialPlatform,string> = {facebook:'Facebook',tiktok:'TikTok',youtube:'YouTube'};
 const socialHost = (host: string, domain: string) => host===domain || host.endsWith(`.${domain}`);
+const trackingParameters = new Set(['fbclid','gclid','dclid','gbraid','wbraid','msclkid','mc_cid','mc_eid','igshid','si','feature','ref_src','ref_url','is_from_webapp','sender_device','sender_web_id']);
+const youtubePresentationParameters = new Set(['t','start','end']);
+
+function isTrackingParameter(name: string) {
+  const key=name.toLowerCase();
+  return key.startsWith('utm_') || trackingParameters.has(key);
+}
+
+function cleanParameters(parsed: URL, youtubeVideo: boolean) {
+  const cleaned=new URLSearchParams();
+  for(const [name,value] of parsed.searchParams) {
+    const key=name.toLowerCase();
+    if(isTrackingParameter(key) || (youtubeVideo && youtubePresentationParameters.has(key))) continue;
+    cleaned.append(name,value);
+  }
+  cleaned.sort();
+  return cleaned;
+}
+
+function youtubeVideoId(parsed: URL) {
+  const segments=parsed.pathname.split('/').filter(Boolean);
+  let candidate: string | null = null;
+  if(parsed.hostname.toLowerCase()==='youtu.be') candidate=segments.length===1 ? segments[0] : null;
+  else if(segments[0]?.toLowerCase()==='watch') candidate=parsed.searchParams.get('v');
+  else if(['shorts','embed','live'].includes(segments[0]?.toLowerCase()??'')) candidate=segments[1]??null;
+  if(!candidate) return null;
+  try {candidate=decodeURIComponent(candidate);} catch {return null;}
+  return /^[A-Za-z0-9_-]{1,64}$/.test(candidate) ? candidate : null;
+}
+
+function validation(message: string): never {throw new SocialInputError(message);}
 
 export function socialURL(input: string) {
-  if(input.length===0 || input.length>2048) throw new Error('Adresa trebuie să aibă între 1 și 2048 de caractere.');
+  if(input.length===0 || input.length>2048) validation('Adresa trebuie să aibă între 1 și 2048 de caractere.');
   let parsed: URL;
-  try {parsed=new URL(input);} catch {throw new Error('Adresa socială nu este validă.');}
-  if(parsed.protocol!=='https:' || parsed.username || parsed.password || parsed.port) throw new Error('Folosește o adresă HTTPS publică, fără credențiale sau port personalizat.');
+  try {parsed=new URL(input);} catch {validation('Adresa socială nu este validă.');}
+  if(parsed.protocol!=='https:' || parsed.username || parsed.password || parsed.port) validation('Folosește o adresă HTTPS publică, fără credențiale sau port personalizat.');
   const host=parsed.hostname.toLowerCase();
   let platform: SocialPlatform | undefined;
   if(socialHost(host,'facebook.com') || host==='fb.watch') platform='facebook';
   else if(socialHost(host,'tiktok.com')) platform='tiktok';
   else if(socialHost(host,'youtube.com') || host==='youtu.be') platform='youtube';
-  if(!platform || parsed.pathname==='/' || parsed.pathname==='') throw new Error('Acceptăm doar linkuri publice Facebook, TikTok sau YouTube.');
+  if(!platform || parsed.pathname==='/' || parsed.pathname==='') validation('Acceptăm doar linkuri publice Facebook, TikTok sau YouTube.');
+  const videoId=platform==='youtube' ? youtubeVideoId(parsed) : null;
   parsed.hash='';
+  if(platform==='youtube' && videoId){
+    const normalized=new URLSearchParams(cleanParameters(parsed,true));
+    for(const key of [...normalized.keys()]) if(key.toLowerCase()==='v') normalized.delete(key);
+    normalized.set('v',videoId);
+    normalized.sort();
+    parsed.protocol='https:';
+    parsed.hostname='www.youtube.com';
+    parsed.port='';
+    parsed.pathname='/watch';
+    parsed.search=normalized.toString() ? `?${normalized.toString()}` : '';
+  } else {
+    parsed.search=cleanParameters(parsed,false).toString();
+  }
   return {platform,originalUrl:input,canonicalUrl:parsed.href};
 }
 
 function requiredText(value: string, label: string, max: number) {
   const text=value.trim();
-  if(!text || text.length>max || text.includes('\0')) throw new Error(`${label} trebuie să aibă între 1 și ${max} de caractere.`);
+  if(!text || text.length>max || text.includes('\0')) validation(`${label} trebuie să aibă între 1 și ${max} de caractere.`);
   return text;
 }
 
 function optionalText(value: string | undefined, label: string, max: number) {
   const text=(value??'').trim();
-  if(text.length>max || text.includes('\0')) throw new Error(`${label} nu poate depăși ${max} de caractere.`);
+  if(text.length>max || text.includes('\0')) validation(`${label} nu poate depăși ${max} de caractere.`);
   return text || undefined;
 }
 
 function status(value: string): SocialStatus {
-  if(!socialStatuses.includes(value as SocialStatus)) throw new Error('Starea editorială nu este validă.');
+  if(!socialStatuses.includes(value as SocialStatus)) validation('Starea editorială nu este validă.');
   return value as SocialStatus;
 }
 
 function platform(value: string): SocialPlatform {
-  if(!socialPlatforms.includes(value as SocialPlatform)) throw new Error('Platforma nu este validă.');
+  if(!socialPlatforms.includes(value as SocialPlatform)) validation('Platforma nu este validă.');
   return value as SocialPlatform;
 }
 
@@ -104,7 +152,7 @@ export async function setSocialStatus(pool: pg.Pool, id: string, nextStatus: str
   try {
     await client.query('BEGIN');
     const before=(await client.query('SELECT editorial_status FROM social_intake_items WHERE id=$1 FOR UPDATE',[id])).rows[0];
-    if(!before) throw new Error('Semnalul social nu există.');
+    if(!before) validation('Semnalul social nu există.');
     if(before.editorial_status!==next){
       await client.query('UPDATE social_intake_items SET editorial_status=$2,updated_at=now() WHERE id=$1',[id,next]);
       await client.query(`INSERT INTO audit_events(id,entity_type,entity_id,action,actor,reason,before_value,after_value)
@@ -121,7 +169,7 @@ export async function updateSocialEnrichment(pool: pg.Pool, id: string, input: S
   const fields: Array<[keyof SocialEnrichment,string,number,string | undefined]> = [['title','Titlul confirmat',500,input.title],['author','Autorul confirmat',200,input.author],['publishedAt','Data publicării',30,input.publishedAt],['notes','Note despre metadata',1000,input.notes]];
   for(const [key,label,max,value] of fields){
     const clean=optionalText(value,label,max);
-    if(key==='publishedAt' && clean && !/^\d{4}-\d{2}-\d{2}$/.test(clean)) throw new Error('Data publicării trebuie să folosească formatul AAAA-LL-ZZ.');
+    if(key==='publishedAt' && clean && !/^\d{4}-\d{2}-\d{2}$/.test(clean)) validation('Data publicării trebuie să folosească formatul AAAA-LL-ZZ.');
     if(clean) metadata[key]=clean;
   }
   const client=await pool.connect();
@@ -129,7 +177,7 @@ export async function updateSocialEnrichment(pool: pg.Pool, id: string, input: S
     await client.query('BEGIN');
     const result=await client.query(`UPDATE social_intake_items SET claim_description=$2,investigation_reason=$3,metadata=$4,metadata_status=$5,updated_at=now()
       WHERE id=$1 RETURNING id`,[id,claimDescription,investigationReason,JSON.stringify(metadata),Object.keys(metadata).length?'manually_confirmed':'not_retrieved']);
-    if(!result.rowCount) throw new Error('Semnalul social nu există.');
+    if(!result.rowCount) validation('Semnalul social nu există.');
     await client.query(`INSERT INTO audit_events(id,entity_type,entity_id,action,actor,reason,after_value)
       VALUES($1,'social_intake',$2,'social_intake_enriched','operator','Descrierea și/sau metadata au fost completate manual din admin.',$3)`,[randomUUID(),id,JSON.stringify({claimDescription,investigationReason,metadata})]);
     await client.query('COMMIT');

@@ -25,6 +25,10 @@ test('HTTP login, CSRF, protected routes and logout work with browser cookies',a
   const cookie=auth.headers.get('set-cookie')!.split(';')[0];assert.ok(cookie);assert.ok(!cookie.includes(secret));
   const screen=await fetch(base+'/admin/integrations',{headers:{Cookie:cookie}});assert.equal(screen.status,200);
   const html=await screen.text();const csrf=html.match(/name="csrf" value="([^"]+)"/)![1];
+  const invalidSocial=await send('/admin/social-intake',{csrf,url:'https://example.com/not-supported',submission_source:'Redacție',claim_description:'Afirmație',investigation_reason:'Motiv'},cookie);
+  assert.equal(invalidSocial.status,303);assert.equal(invalidSocial.headers.get('location'),'/admin/social-intake?notice=invalid');
+  const socialInfrastructure=await send('/admin/social-intake',{csrf,url:'https://youtube.com/watch?v=video-1',submission_source:'Redacție',claim_description:'Afirmație',investigation_reason:'Motiv'},cookie);
+  assert.equal(socialInfrastructure.status,503);const infrastructureBody=await socialInfrastructure.text();assert.match(infrastructureBody,/Serviciul este temporar indisponibil/);assert.doesNotMatch(infrastructureBody,/ECONNREFUSED|postgresql|DATABASE_URL/);
   assert.equal((await send('/logout',{},cookie)).status,403);
   const other=`popestiri_session=${createSession(secret)}`;
   assert.equal((await send('/logout',{csrf},other)).status,403);
