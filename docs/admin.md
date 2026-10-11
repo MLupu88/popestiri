@@ -34,9 +34,10 @@ Rotirea OPERATOR_TOKEN invalidează toate sesiunile existente; logout șterge co
 - `/admin`: numere reale și edițiile live existente. Nicio ediție fictivă creată.
 - `/admin/sources`: adăugare, activare/dezactivare și import manual RSS/Atom HTTPS.
 - `/admin/articles`: titlu, extras furnizat de flux, dată, sursă, link la fotografie dacă există; filtrare și paginare.
+- `/admin/social-intake`: linkuri publice Facebook, TikTok și YouTube trimise de operator; filtrare după platformă și stare, detalii, proveniență, completare manuală și schimbare de stare. Vezi [fluxul Social Intake](social-intake.md).
 - `/admin/integrations`: inventarul implementării, fără expunerea cheilor.
 - `/api/providers` păstrează autentificarea Bearer și răspunde 401 fără token.
-- `/health` verifică procesul; `/ready` verifică accesul la DB și prezența migrării 0001.
+- `/health` verifică procesul; `/ready` verifică accesul la DB și prezența migrării 0002.
 - Logo-ul alb este încărcat din `assets/popestiri-logo-white.png`; originalul JPEG este fallback.
 
 ## Limitele importului
@@ -68,7 +69,7 @@ Nici prezența unei chei în mediu, nici importul RSS nu înseamnă că aceste e
 
 ## Verificări
 
-Typecheck și 17 teste: reguli editoriale existente, DB, reluarea etapelor,
+Typecheck și testele existente plus Social Intake: reguli editoriale, DB, reluarea etapelor,
 autentificare HTTP, cookie/CSRF, expirare și alterarea sesiunii, URL-uri private,
 RSS/Atom, HTML neexecutabil, proveniența fotografiei și import fără duplicate.
 Verificarea unui flux real și verificarea vizuală în browser trebuie făcute pe Mac/server;

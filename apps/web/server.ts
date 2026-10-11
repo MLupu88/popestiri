@@ -3,8 +3,8 @@ import {readFile} from 'node:fs/promises';
 import pg from 'pg';
 import {providerConfig} from '../../packages/connectors/contracts.ts';
 import {equal, createSession, validSession, sessionCookie, readSession, csrfToken} from './auth.ts';
-import {login, layout, overview, sourcesView, articlesView, integrationsView} from './views.ts';
-import {dashboard, listSources, listArticles, addSource, setSourceEnabled, importSource} from './store.ts';
+import {login, layout, overview, sourcesView, articlesView, integrationsView, socialIntakeView, socialIntakeDetailView} from './views.ts';
+import {dashboard, listSources, listArticles, addSource, setSourceEnabled, importSource, addSocialSubmission, listSocialIntake, getSocialIntake, setSocialStatus, updateSocialEnrichment, socialPlatforms, socialStatuses} from './store.ts';
 
 const token = process.env.OPERATOR_TOKEN;
 if(!token || token.length<24) throw new Error('Set OPERATOR_TOKEN (at least 24 characters)');
@@ -14,7 +14,7 @@ const pool = new pg.Pool({connectionString:process.env.DATABASE_URL,max:4,connec
 pool.on('error',()=>console.error('Database pool connection error'));
 let attempts = 0, resetAt = Date.now()+15*60*1000;
 const importing = new Set<string>();
-const messages: Record<string,string> = {added:'Sursa a fost adăugată. Poți importa primele articole.',duplicate:'Acest flux este deja configurat.',updated:'Starea sursei a fost actualizată.',imported:'Import încheiat. Rezultatul apare lângă sursă.',failed:'Importul nu a reușit. Verifică URL-ul fluxului și disponibilitatea sursei HTTPS.',invalid:'Verifică numele și adresa HTTPS a fluxului.',busy:'Un import este deja în curs. Reîncarcă pagina în câteva secunde.'};
+const messages: Record<string,string> = {added:'Sursa a fost adăugată. Poți importa primele articole.',duplicate:'Acest flux este deja configurat.',updated:'Starea sursei a fost actualizată.',imported:'Import încheiat. Rezultatul apare lângă sursă.',failed:'Importul nu a reușit. Verifică URL-ul fluxului și disponibilitatea sursei HTTPS.',invalid:'Verifică datele introduse și adresa HTTPS Facebook, TikTok sau YouTube.',busy:'Un import este deja în curs. Reîncarcă pagina în câteva secunde.',social_added:'Semnalul social a fost adăugat.',social_duplicate:'Linkul exista deja. Noua proveniență a fost păstrată.',social_updated:'Completarea manuală a fost salvată.',social_status:'Starea editorială a fost actualizată.'};
 function send(res: ServerResponse, code: number, text: string, type='text/html; charset=utf-8') {res.writeHead(code,{'Content-Type':type});res.end(text);}
 function json(res: ServerResponse, code: number, value: unknown) {send(res,code,JSON.stringify(value),'application/json; charset=utf-8');}
 function redirect(res: ServerResponse, path: string) {res.writeHead(303,{Location:path});res.end();}
@@ -35,9 +35,9 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url ?? '/', 'http://internal');
   const path = url.pathname;
   const get = req.method==='GET';
-  if(path==='/health' && get) {json(res,200,{status:'ok',milestone:'M0.2',databaseChecked:false});return;}
+  if(path==='/health' && get) {json(res,200,{status:'ok',milestone:'M0.3B',databaseChecked:false});return;}
   if(path==='/ready' && get) {
-    try {const result = await pool.query("SELECT id FROM schema_migrations WHERE id='0001'");if(!result.rowCount) throw new Error();json(res,200,{status:'ok',databaseChecked:true});}
+    try {const result = await pool.query("SELECT id FROM schema_migrations WHERE id='0002'");if(!result.rowCount) throw new Error();json(res,200,{status:'ok',databaseChecked:true});}
     catch {json(res,503,{status:'unavailable',databaseChecked:true});} return;
   }
   if(get && path==='/assets/admin.css') {send(res,200,await readFile(new URL('./public/admin.css',import.meta.url),'utf8'),'text/css; charset=utf-8');return;}
@@ -78,6 +78,23 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
       catch(error) {if(error instanceof Error && ('code' in error)) throw error;redirect(res,'/admin/sources?notice=invalid');return;}
       redirect(res,`/admin/sources?notice=${added?'added':'duplicate'}`);return;
     }
+    if(path==='/admin/social-intake') {
+      try {
+        const result=await addSocialSubmission(pool,{url:(data.get('url')??'').trim(),submissionSource:data.get('submission_source')??'',claimDescription:data.get('claim_description')??'',investigationReason:data.get('investigation_reason')??''});
+        redirect(res,`/admin/social-intake/${encodeURIComponent(result.id)}?notice=${result.duplicate?'social_duplicate':'social_added'}`);
+      } catch {redirect(res,'/admin/social-intake?notice=invalid');}
+      return;
+    }
+    const socialMatch=path.match(/^\/admin\/social-intake\/(social-[a-f0-9]{32})\/(status|enrichment)$/);
+    if(socialMatch) {
+      const [,id,action]=socialMatch;
+      try {
+        if(action==='status') await setSocialStatus(pool,id,data.get('status')??'');
+        else await updateSocialEnrichment(pool,id,{claimDescription:data.get('claim_description')??'',investigationReason:data.get('investigation_reason')??'',title:data.get('title')??'',author:data.get('author')??'',publishedAt:data.get('published_at')??'',notes:data.get('notes')??''});
+        redirect(res,`/admin/social-intake/${encodeURIComponent(id)}?notice=${action==='status'?'social_status':'social_updated'}`);
+      } catch {redirect(res,`/admin/social-intake/${encodeURIComponent(id)}?notice=invalid`);}
+      return;
+    }
     const match=path.match(/^\/admin\/sources\/(rss-[a-f0-9]{32})\/(toggle|import)$/);
     if(match) {
       const [,id,action]=match;
@@ -99,6 +116,18 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
     const page=Math.min(10000,Math.max(1,Math.floor(Number(url.searchParams.get('page'))||1)));
     const [articles,sources]=await Promise.all([listArticles(pool,source,page),listSources(pool)]);
     send(res,200,layout('articles','Articole','Materialul colectat din surse, înainte de selecția și verificarea editorială.',articlesView(articles,sources,source,page),csrf));return;
+  }
+  if(path==='/admin/social-intake') {
+    const selectedPlatform=socialPlatforms.includes((url.searchParams.get('platform')??'') as typeof socialPlatforms[number]) ? url.searchParams.get('platform')! : '';
+    const selectedStatus=socialStatuses.includes((url.searchParams.get('status')??'') as typeof socialStatuses[number]) ? url.searchParams.get('status')! : '';
+    const page=Math.min(10000,Math.max(1,Math.floor(Number(url.searchParams.get('page'))||1)));
+    send(res,200,layout('social-intake','Social Intake','Linkuri publice trimise de operatori, păstrate ca neconfirmate până la verificarea editorială.',socialIntakeView(await listSocialIntake(pool,selectedPlatform,selectedStatus,page),selectedPlatform,selectedStatus,csrf),csrf,notice));return;
+  }
+  const socialDetail=path.match(/^\/admin\/social-intake\/(social-[a-f0-9]{32})$/);
+  if(socialDetail) {
+    const detail=await getSocialIntake(pool,socialDetail[1]);
+    if(!detail){send(res,404,'Semnalul social nu există.');return;}
+    send(res,200,layout('social-intake','Detaliu Social Intake','Revizuiește proveniența, completează metadata disponibilă manual și schimbă starea editorială.',socialIntakeDetailView(detail,csrf),csrf,notice));return;
   }
   if(path==='/admin/integrations') {send(res,200,layout('integrations','Integrări','Serviciile care vor susține colectarea, verificarea și redactarea.',integrationsView(providerConfig),csrf));return;}
   send(res,404,'Pagina nu există.');
