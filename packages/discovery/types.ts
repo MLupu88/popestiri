@@ -33,6 +33,7 @@ export type AdapterResult = {
   status: 'succeeded' | 'partial' | 'unavailable' | 'failed';
   candidates: DiscoveryCandidateInput[];
   seen: number;
+  failed: number;
   errorCode?: string;
   limitation?: string;
 };

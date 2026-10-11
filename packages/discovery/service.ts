@@ -15,22 +15,42 @@ export function conservativeGroupingKey(title: string) {
   return tokens.length >= 3 ? tokens.join('|') : null;
 }
 
-async function loadSources(pool: pg.Pool): Promise<DiscoverySource[]> {
-  return (await pool.query(`SELECT * FROM discovery_source_registry WHERE enabled=true ORDER BY kind,name,id`)).rows as DiscoverySource[];
+function observationKey(value: Record<string, unknown>) {
+  return [value.registryId,value.adapter,value.discoveryMode,value.sourceName,JSON.stringify(value)].filter(Boolean).join('|');
 }
 
-async function persistCandidate(pool: pg.Pool, candidate: DiscoveryCandidateInput) {
+export function mergeObservationEnvelope(existing: unknown, incoming: Record<string, unknown>) {
+  const old = existing && typeof existing === 'object' && Array.isArray((existing as any).observations)
+    ? (existing as any).observations
+    : existing && typeof existing === 'object' && Object.keys(existing as object).length ? [existing]
+    : [];
+  const observations=[...old,incoming] as Record<string, unknown>[];
+  const seen=new Set<string>();
+  return {observations:observations.filter(value=>{const key=observationKey(value);if(seen.has(key)) return false;seen.add(key);return true;})};
+}
+
+export async function loadAutomatedSources(pool: pg.Pool): Promise<DiscoverySource[]> {
+  return (await pool.query(`SELECT * FROM discovery_source_registry WHERE enabled=true AND kind <> 'social_intake' ORDER BY kind,name,id`)).rows as DiscoverySource[];
+}
+
+export async function persistDiscoveryCandidate(pool: pg.Pool, candidate: DiscoveryCandidateInput) {
   const id = candidateId(candidate.canonicalUrl);
-  const result = await pool.query(`
-    INSERT INTO discovery_candidates(id,source_id,source_kind,source_name,original_url,canonical_url,title,summary,observed_at,published_at,provenance,popularity_signals)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-    ON CONFLICT(canonical_url) DO UPDATE SET
-      last_seen_at=now(), updated_at=now(), observed_at=GREATEST(discovery_candidates.observed_at,EXCLUDED.observed_at),
-      provenance=discovery_candidates.provenance || EXCLUDED.provenance,
-      popularity_signals=discovery_candidates.popularity_signals || EXCLUDED.popularity_signals
-    RETURNING (xmax=0) AS inserted
-  `,[id,candidate.sourceId,candidate.sourceKind,candidate.sourceName,candidate.originalUrl,candidate.canonicalUrl,candidate.title,candidate.summary,candidate.observedAt,candidate.publishedAt,JSON.stringify(candidate.provenance),JSON.stringify(candidate.popularitySignals ?? {})]);
-  return Boolean(result.rows[0]?.inserted);
+  const client=await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(`
+      INSERT INTO discovery_candidates(id,source_id,source_kind,source_name,original_url,canonical_url,title,summary,observed_at,published_at,provenance,popularity_signals)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      ON CONFLICT(canonical_url) DO NOTHING
+      RETURNING id
+    `,[id,candidate.sourceId,candidate.sourceKind,candidate.sourceName,candidate.originalUrl,candidate.canonicalUrl,candidate.title,candidate.summary,candidate.observedAt,candidate.publishedAt,JSON.stringify(mergeObservationEnvelope({},candidate.provenance)),JSON.stringify(mergeObservationEnvelope({},candidate.popularitySignals ?? {}))]);
+    if(result.rowCount) {await client.query('COMMIT');return true;}
+    const existing=(await client.query(`SELECT provenance,popularity_signals FROM discovery_candidates WHERE canonical_url=$1 FOR UPDATE`,[candidate.canonicalUrl])).rows[0];
+    if(!existing) throw new Error('Candidate disappeared during deduplication.');
+    await client.query(`UPDATE discovery_candidates SET last_seen_at=now(),updated_at=now(),observed_at=GREATEST(observed_at,$2),provenance=$3,popularity_signals=$4 WHERE canonical_url=$1`,[candidate.canonicalUrl,candidate.observedAt,JSON.stringify(mergeObservationEnvelope(existing.provenance,candidate.provenance)),JSON.stringify(mergeObservationEnvelope(existing.popularity_signals,candidate.popularitySignals ?? {}))]);
+    await client.query('COMMIT');
+    return false;
+  } catch(error) {await client.query('ROLLBACK');throw error;} finally {client.release();}
 }
 
 async function groupRecentCandidates(pool: pg.Pool) {
@@ -57,28 +77,28 @@ async function groupRecentCandidates(pool: pg.Pool) {
 
 async function logAdapter(pool: pg.Pool, runId: string, result: AdapterResult, elapsedMs: number) {
   await pool.query(`INSERT INTO audit_events(id,entity_type,entity_id,action,actor,reason,after_value) VALUES($1,'discovery_run',$2,$3,'worker',$4,$5)`,[
-    randomUUID(),runId,`discovery_${result.status}`,`Discovery adapter ${result.adapter} completed.`,JSON.stringify({adapter:result.adapter,status:result.status,seen:result.seen,errorCode:result.errorCode,limitation:result.limitation,elapsedMs})
+    randomUUID(),runId,`discovery_${result.status}`,`Discovery adapter ${result.adapter} completed.`,JSON.stringify({adapter:result.adapter,status:result.status,seen:result.seen,failed:result.failed,errorCode:result.errorCode,limitation:result.limitation,elapsedMs})
   ]);
 }
 
-async function runAdapter(source: DiscoverySource): Promise<AdapterResult> {
+async function runSourceAdapter(source: DiscoverySource): Promise<AdapterResult> {
   if(source.kind === 'rss') return discoverRSS(source);
   if(source.kind === 'google_trends') return discoverGoogleTrends(source);
   if(source.kind === 'youtube_api') return discoverYouTube(source);
-  return {adapter:source.kind,status:'unavailable',seen:0,candidates:[],errorCode:'unsupported_discovery_source',limitation:'Source type is not automated in this milestone.'};
+  return {adapter:source.kind,status:'unavailable',seen:0,candidates:[],failed:0,errorCode:'unsupported_discovery_source',limitation:'Source type is not automated in this milestone.'};
 }
 
 export type DiscoveryRunSummary = {
   skipped: boolean;
   status: 'succeeded' | 'partial' | 'failed' | 'skipped';
-  adapters: Array<{adapter:string;status:AdapterResult['status'];seen:number;added:number;errorCode?:string;limitation?:string}>;
+  adapters: Array<{adapter:string;status:AdapterResult['status'];seen:number;failed:number;added:number;errorCode?:string;limitation?:string}>;
   candidatesSeen: number;
   candidatesAdded: number;
   groupsUpdated: number;
   elapsedMs: number;
 };
 
-export async function runDiscovery(pool: pg.Pool): Promise<DiscoveryRunSummary> {
+export async function runDiscovery(pool: pg.Pool, options: {adapter?: (source: DiscoverySource) => Promise<AdapterResult>} = {}): Promise<DiscoveryRunSummary> {
   const started = performance.now();
   const lock = await pool.connect();
   let locked = false;
@@ -89,21 +109,29 @@ export async function runDiscovery(pool: pg.Pool): Promise<DiscoveryRunSummary> 
     if(!locked) return empty(true);
     runId = `discovery-run-${randomUUID()}`;
     await pool.query(`INSERT INTO discovery_runs(id,status) VALUES($1,'running')`,[runId]);
-    const sources = await loadSources(pool);
+    const sources = await loadAutomatedSources(pool);
     const adapterResults: DiscoveryRunSummary['adapters'] = [];
     let candidatesSeen = 0, candidatesAdded = 0;
     for(const source of sources) {
       const adapterStarted = performance.now();
-      const result = await runAdapter(source);
+      let result: AdapterResult;
+      try {result = await (options.adapter ?? runSourceAdapter)(source);} catch(error) {
+        result={adapter:`${source.kind}:${source.id}`,status:'failed',seen:0,candidates:[],failed:1,errorCode:'adapter_source_failure',limitation:error instanceof Error ? error.message : 'Adaptorul a eșuat.'};
+      }
       let added = 0;
-      for(const candidate of result.candidates) if(await persistCandidate(pool,candidate)) added++;
+      let failed = result.failed;
+      for(const candidate of result.candidates) {
+        try {if(await persistDiscoveryCandidate(pool,candidate)) added++;}
+        catch {failed++;}
+      }
+      const status: AdapterResult['status'] = failed && result.status === 'succeeded' ? 'partial' : failed && result.status === 'partial' && !result.candidates.length ? 'failed' : result.status;
       candidatesSeen += result.seen; candidatesAdded += added;
-      adapterResults.push({adapter:result.adapter,status:result.status,seen:result.seen,added,errorCode:result.errorCode,limitation:result.limitation});
-      await logAdapter(pool,runId,result,Math.round(performance.now()-adapterStarted));
+      adapterResults.push({adapter:result.adapter,status,seen:result.seen,failed,added,errorCode:result.errorCode,limitation:result.limitation});
+      await logAdapter(pool,runId,{...result,status,failed},Math.round(performance.now()-adapterStarted));
     }
     const groupsUpdated = await groupRecentCandidates(pool);
-    const hasFailure = adapterResults.some(result => result.status === 'failed' || result.status === 'unavailable');
-    const status = hasFailure ? (adapterResults.some(result => result.status === 'succeeded') ? 'partial' : 'failed') : 'succeeded';
+    const hasFailure = adapterResults.some(result => result.status === 'failed' || result.status === 'partial' || result.status === 'unavailable' || result.failed > 0);
+    const status = hasFailure ? ((candidatesAdded > 0 || adapterResults.some(result => result.status === 'succeeded')) ? 'partial' : 'failed') : 'succeeded';
     const summary = {skipped:false,status,adapters:adapterResults,candidatesSeen,candidatesAdded,groupsUpdated,elapsedMs:Math.round(performance.now()-started)} as DiscoveryRunSummary;
     await pool.query(`UPDATE discovery_runs SET finished_at=now(),status=$2,adapter_results=$3,candidates_seen=$4,candidates_added=$5,groups_updated=$6 WHERE id=$1`,[runId,status,JSON.stringify(adapterResults),candidatesSeen,candidatesAdded,groupsUpdated]);
     await pool.query(`INSERT INTO audit_events(id,entity_type,entity_id,action,actor,reason,after_value) VALUES($1,'discovery_run',$2,'discovery_run_finished','worker','Automated discovery run completed.',$3)`,[randomUUID(),runId,JSON.stringify(summary)]);
