@@ -5,8 +5,8 @@ Sursa de produs: brief-ul original din [main] actual.verificat/Pasted text.txt, 
 ## Componente
 
 - apps/web: API și, ulterior, Next.js pentru admin și paginile publice accesate prin QR.
-- apps/worker: pipeline programat; proces separat de cererile web. În M0.3A există workerul
-  one-shot de import RSS; schedulerul rămâne neimplementat.
+- apps/worker: pipeline programat; proces separat de cererile web. Workerul RSS este one-shot;
+  pe Hetzner este pornit orar de timerul systemd host-level.
 - apps/print-agent: agent macOS/Linux care preia ediția ready și folosește CUPS/lp.
 - packages/core: contracte Zod, reguli editoriale și selecție.
 - packages/db: PostgreSQL, Drizzle, migrări și checkpoint-uri.
@@ -22,7 +22,7 @@ Nu există ponderi numerice de ranking aprobate; nu inventăm o formulă prezent
 
 ## Automatizare
 
-Ținta configurabilă: 05:15 pornire, 06:30 ediție disponibilă, aproximativ 07:00 print. Europe/Bucharest gestionează DST. Schedulerul poate fi n8n sau alt trigger; regulile stau în cod. O singură execuție logică per dată/regiune și revizie, cu retry pe etape. Schedulerul nu este încă implementat.
+Ținta configurabilă: 05:15 pornire, 06:30 ediție disponibilă, aproximativ 07:00 print. Europe/Bucharest gestionează DST. Pentru importul RSS, timerul systemd host-level este activ pe Hetzner și rulează workerul orar; aplicația nu include un proces scheduler intern. O singură execuție logică per dată/regiune și revizie, cu retry pe etape.
 
 Importul RSS batch folosește serviciul comun cu adminul, citește doar sursele active din PostgreSQL,
 ține un advisory lock PostgreSQL pentru a evita două batch-uri simultane și limitează concurența la două

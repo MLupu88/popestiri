@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';
 import type pg from 'pg';
-import {addSocialSubmission, getSocialIntake, listSocialIntake, setSocialStatus, socialURL, updateSocialEnrichment} from '../apps/web/store.ts';
+import {addSocialSubmission, getSocialIntake, listSocialIntake, setSocialStatus, socialURL, SocialInputError, updateSocialEnrichment} from '../apps/web/store.ts';
 import {socialIntakeDetailView, socialIntakeView} from '../apps/web/views.ts';
 
 async function testPool() {
@@ -19,8 +19,18 @@ test('social URL validation identifies supported platforms and blocks unsafe or 
   assert.equal(socialURL('https://www.facebook.com/example/posts/1').platform,'facebook');
   assert.equal(socialURL('https://www.tiktok.com/@creator/video/1').platform,'tiktok');
   assert.equal(socialURL('https://youtu.be/video-1#comments').platform,'youtube');
-  assert.equal(socialURL('https://youtu.be/video-1#comments').canonicalUrl,'https://youtu.be/video-1');
+  assert.equal(socialURL('https://youtu.be/video-1#comments').canonicalUrl,'https://www.youtube.com/watch?v=video-1');
+  assert.equal(socialURL('https://www.youtube.com/shorts/video-1?si=share-token&feature=share').canonicalUrl,'https://www.youtube.com/watch?v=video-1');
+  assert.equal(socialURL('https://www.youtube.com/embed/video-1?utm_source=facebook&t=45').canonicalUrl,'https://www.youtube.com/watch?v=video-1');
+  assert.equal(socialURL('https://youtu.be/video-1?utm_source=facebook&list=playlist-1&content_id=42').canonicalUrl,'https://www.youtube.com/watch?content_id=42&list=playlist-1&v=video-1');
+  assert.equal(socialURL('https://www.facebook.com/example/posts/1?utm_source=reader&fbclid=tracking&post_id=42').canonicalUrl,'https://www.facebook.com/example/posts/1?post_id=42');
   for(const url of ['http://youtube.com/watch?v=1','https://evil.example/youtube.com/watch?v=1','https://user:pass@facebook.com/post/1','https://youtube.com:8443/watch?v=1','https://facebook.com/','https://facebook.com.evil.example/post/1']) assert.throws(()=>socialURL(url));
+});
+
+test('social input failures are typed before database access and infrastructure errors remain infrastructure errors',async()=>{
+  assert.throws(()=>socialURL('https://example.com/not-supported'),(error)=>error instanceof SocialInputError);
+  const failingPool={connect:async()=>{throw new Error('database unavailable');}} as unknown as pg.Pool;
+  await assert.rejects(addSocialSubmission(failingPool,{url:'https://youtube.com/watch?v=video-1',submissionSource:'Redacție',claimDescription:'Afirmație',investigationReason:'Necesită verificare.'}),/database unavailable/);
 });
 
 test('social intake deduplicates canonical URLs while retaining every submission provenance',async()=>{

@@ -4,7 +4,7 @@ import pg from 'pg';
 import {providerConfig} from '../../packages/connectors/contracts.ts';
 import {equal, createSession, validSession, sessionCookie, readSession, csrfToken} from './auth.ts';
 import {login, layout, overview, sourcesView, articlesView, integrationsView, socialIntakeView, socialIntakeDetailView} from './views.ts';
-import {dashboard, listSources, listArticles, addSource, setSourceEnabled, importSource, addSocialSubmission, listSocialIntake, getSocialIntake, setSocialStatus, updateSocialEnrichment, socialPlatforms, socialStatuses} from './store.ts';
+import {dashboard, listSources, listArticles, addSource, setSourceEnabled, importSource, addSocialSubmission, listSocialIntake, getSocialIntake, setSocialStatus, updateSocialEnrichment, socialPlatforms, socialStatuses, SocialInputError} from './store.ts';
 
 const token = process.env.OPERATOR_TOKEN;
 if(!token || token.length<24) throw new Error('Set OPERATOR_TOKEN (at least 24 characters)');
@@ -82,7 +82,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
       try {
         const result=await addSocialSubmission(pool,{url:(data.get('url')??'').trim(),submissionSource:data.get('submission_source')??'',claimDescription:data.get('claim_description')??'',investigationReason:data.get('investigation_reason')??''});
         redirect(res,`/admin/social-intake/${encodeURIComponent(result.id)}?notice=${result.duplicate?'social_duplicate':'social_added'}`);
-      } catch {redirect(res,'/admin/social-intake?notice=invalid');}
+      } catch(error) {if(error instanceof SocialInputError) {redirect(res,'/admin/social-intake?notice=invalid');return;} throw error;}
       return;
     }
     const socialMatch=path.match(/^\/admin\/social-intake\/(social-[a-f0-9]{32})\/(status|enrichment)$/);
@@ -92,7 +92,7 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
         if(action==='status') await setSocialStatus(pool,id,data.get('status')??'');
         else await updateSocialEnrichment(pool,id,{claimDescription:data.get('claim_description')??'',investigationReason:data.get('investigation_reason')??'',title:data.get('title')??'',author:data.get('author')??'',publishedAt:data.get('published_at')??'',notes:data.get('notes')??''});
         redirect(res,`/admin/social-intake/${encodeURIComponent(id)}?notice=${action==='status'?'social_status':'social_updated'}`);
-      } catch {redirect(res,`/admin/social-intake/${encodeURIComponent(id)}?notice=invalid`);}
+      } catch(error) {if(error instanceof SocialInputError) {redirect(res,`/admin/social-intake/${encodeURIComponent(id)}?notice=invalid`);return;} throw error;}
       return;
     }
     const match=path.match(/^\/admin\/sources\/(rss-[a-f0-9]{32})\/(toggle|import)$/);

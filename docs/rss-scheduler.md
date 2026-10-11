@@ -1,6 +1,6 @@
 # RSS scheduler runbook
 
-The hourly scheduler is a host-level systemd timer. It starts the existing one-shot
+The hourly scheduler is an active host-level systemd timer on Hetzner. It starts the existing one-shot
 worker in a disposable Docker container; it does not add a scheduler process, queue,
 database, or application server. The worker's PostgreSQL advisory lock still prevents
 overlapping batch runs, and its existing deduplication, source isolation, and provenance
@@ -98,4 +98,3 @@ sudo systemctl daemon-reload
 If the application revision is rolled back, leave the timer disabled until the checked-out
 revision still contains the worker command and the production compose configuration. No
 database rollback is needed for these unit files.
-

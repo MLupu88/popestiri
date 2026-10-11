@@ -35,5 +35,6 @@ Imaginea Docker existentă conține workerul. Pentru o rulare manuală în mediu
 docker compose --env-file .env.production -f compose.production.yaml run --rm api node apps/worker/ingest.ts
 ```
 
-Nu există încă scheduler sau cron; această comandă nu pornește rulări recurente și nu schimbă
-serviciile persistente. Adminul și workerul folosesc aceeași deduplicare `(source_id, canonical_url)`.
+Această comandă nu pornește rulări recurente și nu schimbă serviciile persistente. Pe Hetzner,
+timerul systemd `popestiri-rss-ingest.timer` pornește workerul orar. Adminul și workerul folosesc
+aceeași deduplicare `(source_id, canonical_url)`.

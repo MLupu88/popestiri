@@ -13,7 +13,7 @@ un flux eșuat nu oprește celelalte surse. Importurile individuale sunt jurnali
 `audit_events` și păstrează articolele ca neevaluate editorial.
 
 Există și contractele Zod, politica editorială, migrarea PostgreSQL și mecanismul de reluare a etapelor.
-Adminul include și Social Intake pentru linkuri publice Facebook, TikTok și YouTube: fiecare URL este păstrat ca neconfirmat, duplicatele păstrează proveniența, iar metadata poate fi completată doar manual. Nu există încă evaluare AI, selecție automată, renderer PDF, QR, scheduler sau trimitere CUPS.
+Adminul include și Social Intake pentru linkuri publice Facebook, TikTok și YouTube: fiecare URL este păstrat ca neconfirmat, duplicatele păstrează proveniența, iar metadata poate fi completată doar manual. Nu există încă evaluare AI, selecție automată, renderer PDF, QR sau trimitere CUPS. Importul RSS este programat orar pe Hetzner printr-un timer systemd host-level.
 
 ## Pornire locală
 
