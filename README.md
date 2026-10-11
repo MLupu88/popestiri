@@ -30,6 +30,7 @@ PORT=0 node --env-file=.env apps/web/server.ts
 PORT=0 cere un port liber. Deschide adresa localURL afișată la pornire.
 Vezi [ghidul admin](docs/admin.md) pentru autentificare și detaliile importului.
 Pentru importul batch vezi [ghidul workerului](docs/worker.md).
+Pentru programarea orară pe Hetzner vezi [runbook-ul schedulerului RSS](docs/rss-scheduler.md).
 Compose-ul local poate aloca dinamic portul PostgreSQL; DATABASE_URL trebuie să corespundă
 portului raportat de `docker compose port db 5432` după recrearea containerului.
 

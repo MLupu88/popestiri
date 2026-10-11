@@ -1,0 +1,11 @@
+[Unit]
+Description=Run PopeȘtiri RSS ingestion hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=popestiri-rss-ingest.service
+
+[Install]
+WantedBy=timers.target
+
