@@ -1,0 +1,14 @@
+[Unit]
+Description=PopeȘtiri hourly RSS ingestion
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/popestiri
+ExecStart=/usr/bin/docker compose --env-file .env.production -f compose.production.yaml run --rm --no-deps api node apps/worker/ingest.ts
+TimeoutStartSec=15min
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=popestiri-rss-ingest
+

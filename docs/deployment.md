@@ -66,3 +66,7 @@ docker compose --env-file .env.production -f compose.production.yaml run --rm ap
 Comanda folosește `DATABASE_URL` și rețeaua internă deja definite pentru serviciul `api`.
 Nu modifica `.env.production`, nu copia tokenuri în argumente și nu rula comanda împotriva
 unei baze de producție în timpul dezvoltării.
+
+Pentru instalarea rulării automate orare, verificarea jurnalelor, oprire și rollback, vezi
+[runbook-ul schedulerului RSS](rss-scheduler.md). Unitățile systemd trebuie instalate numai
+după verificarea revision-ului aprobat pe Hetzner; acest repository nu modifică serverul.
