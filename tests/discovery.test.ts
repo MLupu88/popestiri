@@ -283,3 +283,22 @@ test('filtered groups count matching candidates separately from contextual cover
     assert.match(rendered,/Acoperire contextuală/);
   } finally {await db.close();}
 });
+
+test('filtered groups require one candidate to match channel and status together', async () => {
+  const {db,pool}=await discoveryPool();
+  try {
+    const sources=(await loadAutomatedSources(pool)).filter(source=>['rss-hotnews','google-trends-ro'].includes(source.id));
+    await persistDiscoveryCandidate(pool,candidate(sources[0],'https://hotnews.ro/filter-same','Nicușor Dan prezintă măsuri pentru trafic'));
+    await persistDiscoveryCandidate(pool,candidate(sources[1],'https://trends.google.com/filter-same','Nicușor Dan discută măsuri noi pentru trafic',sources[1].name,'google_trends'));
+    await pool.query(`UPDATE discovery_candidates SET status='reviewing' WHERE canonical_url='https://hotnews.ro/filter-same'`);
+    await groupRecentCandidates(pool);
+
+    const listed=await listDiscoveries(pool,'google_trends','reviewing',1,'recent');
+    assert.equal(listed.total,0);
+    assert.equal(listed.group_total,0);
+    assert.equal(listed.rows.length,0);
+
+    const preserved=(await pool.query(`SELECT count(*)::int AS count FROM discovery_candidates`)).rows[0];
+    assert.equal(preserved.count,2);
+  } finally {await db.close();}
+});

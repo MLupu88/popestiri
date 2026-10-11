@@ -294,8 +294,7 @@ export async function listDiscoveries(pool: pg.Pool, kind: string, statusValue: 
     JOIN discovery_candidates c ON c.id=gm.candidate_id
     GROUP BY g.id
     HAVING count(DISTINCT c.id)>1 AND count(DISTINCT c.source_id)>1
-      AND ($1::text='' OR bool_or(c.source_kind=$1))
-      AND ($2::text='' OR bool_or(c.status=$2))`,[selectedKind,selectedStatus])).rows;
+      AND bool_or(($1::text='' OR c.source_kind=$1) AND ($2::text='' OR c.status=$2))`,[selectedKind,selectedStatus])).rows;
   const candidates=(await pool.query(`SELECT c.* FROM discovery_candidates c
     WHERE ($1::text='' OR c.source_kind=$1) AND ($2::text='' OR c.status=$2)
     ORDER BY c.observed_at DESC,c.id`,[selectedKind,selectedStatus])).rows;
