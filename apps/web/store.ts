@@ -279,12 +279,15 @@ export async function listDiscoveries(pool: pg.Pool, kind: string, statusValue: 
   const groups=(await pool.query(`SELECT g.id,g.title,g.method,g.provisional,
       min(c.observed_at) AS first_seen,max(c.observed_at) AS last_seen,
       count(DISTINCT c.id)::int AS candidate_count,count(DISTINCT c.source_id)::int AS source_count,
+      count(DISTINCT c.id) FILTER (WHERE ($1::text='' OR c.source_kind=$1) AND ($2::text='' OR c.status=$2))::int AS matching_candidate_count,
+      count(DISTINCT c.source_id) FILTER (WHERE ($1::text='' OR c.source_kind=$1) AND ($2::text='' OR c.status=$2))::int AS matching_source_count,
       array_agg(DISTINCT c.source_name ORDER BY c.source_name) AS source_names,
       jsonb_agg(jsonb_build_object('id',c.id,'title',c.title,'source_id',c.source_id,'source_name',c.source_name,
         'source_kind',c.source_kind,'original_url',c.original_url,'canonical_url',c.canonical_url,
         'summary',c.summary,'observed_at',c.observed_at,'published_at',c.published_at,
         'provenance',c.provenance,'popularity_signals',c.popularity_signals,'status',c.status,
-        'editorial_interest',c.editorial_interest,'verification_priority',c.verification_priority)
+        'editorial_interest',c.editorial_interest,'verification_priority',c.verification_priority,
+        'matches_filter',(($1::text='' OR c.source_kind=$1) AND ($2::text='' OR c.status=$2)))
         ORDER BY c.observed_at DESC,c.id) AS members
     FROM discovery_groups g
     JOIN discovery_group_members gm ON gm.group_id=g.id
@@ -298,7 +301,9 @@ export async function listDiscoveries(pool: pg.Pool, kind: string, statusValue: 
     ORDER BY c.observed_at DESC,c.id`,[selectedKind,selectedStatus])).rows;
   const groupedCandidateIds=new Set(groups.flatMap(group => (group.members as any[]).map(member => member.id)));
   const groupItems=groups.map(group => ({...group,item_type:'group',id:group.id,title:group.title,observed_at:group.last_seen,
-    source_names:group.source_names ?? [],source_count:Number(group.source_count),candidate_count:Number(group.candidate_count),members:group.members ?? []}));
+    source_names:group.source_names ?? [],source_count:Number(group.source_count),candidate_count:Number(group.candidate_count),
+    matching_candidate_count:Number(group.matching_candidate_count),matching_source_count:Number(group.matching_source_count),
+    contextual_candidate_count:Number(group.candidate_count)-Number(group.matching_candidate_count),members:group.members ?? []}));
   const candidateItems=candidates.filter(candidate => !groupedCandidateIds.has(candidate.id)).map(candidate => {
     const sourceNames=candidateSourceNames(candidate);
     return {...candidate,item_type:'candidate',source_names:sourceNames,source_count:sourceNames.length,candidate_count:1,members:[candidate]};
