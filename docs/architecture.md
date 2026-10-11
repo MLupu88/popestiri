@@ -11,7 +11,7 @@ Sursa de produs: brief-ul original din [main] actual.verificat/Pasted text.txt, 
 - packages/core: contracte Zod, reguli editoriale și selecție.
 - packages/db: PostgreSQL, Drizzle, migrări și checkpoint-uri.
 - packages/connectors: interfețe furnizori; implementările urmează.
-- packages/discovery: registry, adaptoare Google Trends/RSS/YouTube, deduplicare și grupare euristică.
+- packages/discovery: registry, adaptoare Google Trends/RSS/YouTube, deduplicare și grupare lexicală provizorie multi-sursă.
 - packages/newspaper: contract PdfRenderer și specificație A4; implementarea rendererului urmează.
 - packages/media: modul planificat pentru assete, verificarea fotografiilor și decupaje.
 
@@ -29,7 +29,7 @@ Importul RSS batch folosește serviciul comun cu adminul, citește doar sursele 
 ține un advisory lock PostgreSQL pentru a evita două batch-uri simultane și limitează concurența la două
 fluxuri. Un eșec este înregistrat per sursă și nu oprește celelalte importuri.
 
-Discovery rulează după RSS în aceeași unitate one-shot, dar folosește un advisory lock separat și persistă starea fiecărui adaptor în `discovery_runs` și `audit_events`. Un adaptor indisponibil produce o rulare parțială; nu oprește importul RSS. Popularitatea observată nu este folosită ca dovadă sau verdict.
+Discovery rulează după RSS în aceeași unitate one-shot, dar folosește un advisory lock separat și persistă starea fiecărui adaptor în `discovery_runs` și `audit_events`. Un adaptor indisponibil produce o rulare parțială; nu oprește importul RSS. Inboxul reconciliază topicuri doar când există mai multe candidate din surse distincte; grupările rămân provizorii și nu sunt verdicturi. Popularitatea observată nu este folosită ca dovadă sau verdict.
 
 Pipeline_runs și stage_runs permit checkpoint și reluare. Implementarea curentă folosește lease de 5 minute; etapele lungi vor necesita heartbeat. Un apel extern poate fi repetat dacă procesul moare înainte să salveze rezultatul; nu pretindem exact-once pentru API-uri. Introducem dedup și limite de consum la conectori. UsageLedger păstrează costuri necunoscute ca null, nu ca zero.
 

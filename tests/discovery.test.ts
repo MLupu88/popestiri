@@ -4,13 +4,14 @@ import {readFile} from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';
 import type pg from 'pg';
 import {discoverGoogleTrends, discoverRSS, discoverYouTube, googleTrendsURL, youtubeAPIURL} from '../packages/discovery/adapters.ts';
-import {conservativeGroupingKey, loadAutomatedSources, persistDiscoveryCandidate, runDiscovery} from '../packages/discovery/service.ts';
+import {conservativeGroupingKey, groupRecentCandidates, loadAutomatedSources, persistDiscoveryCandidate, relatedDiscoveryCandidates, runDiscovery, topicComponents} from '../packages/discovery/service.ts';
 import type {DiscoveryCandidateInput, DiscoverySource, AdapterResult} from '../packages/discovery/types.ts';
 import {addSocialSubmission, listDiscoveries, setDiscoveryStatus, dashboard} from '../apps/web/store.ts';
 import {discoveriesView} from '../apps/web/views.ts';
 
 const migration = await readFile(new URL('../packages/db/migrations/0003_discovery.sql', import.meta.url), 'utf8');
 const endpointMigration = await readFile(new URL('../packages/db/migrations/0004_discovery_endpoint_validation.sql', import.meta.url), 'utf8');
+const inboxMigration = await readFile(new URL('../packages/db/migrations/0005_editorial_discovery_inbox.sql', import.meta.url), 'utf8');
 const productionCompose = await readFile(new URL('../compose.production.yaml', import.meta.url), 'utf8');
 
 function poolFor(db: PGlite) {
@@ -27,6 +28,7 @@ async function discoveryPool() {
   await db.exec(await readFile(new URL('../packages/db/migrations/0002_social_intake.sql', import.meta.url),'utf8'));
   await db.exec(migration);
   await db.exec(endpointMigration);
+  await db.exec(inboxMigration);
   return {db,pool:poolFor(db)};
 }
 
@@ -106,6 +108,7 @@ test('discovery migration provides the unified inbox and workflow state without 
     await db.exec(await readFile(new URL('../packages/db/migrations/0002_social_intake.sql',import.meta.url),'utf8'));
     await db.exec(migration);
     await db.exec(endpointMigration);
+    await db.exec(inboxMigration);
     const pool=poolFor(db);
     assert.equal((await pool.query("SELECT endpoint_url FROM discovery_source_registry WHERE id='rss-hotnews'")).rows[0].endpoint_url,'https://hotnews.ro/feed');
     await addSocialSubmission(pool,{url:'https://youtu.be/discovery-1',submissionSource:'Pont cititor',claimDescription:'Semnal social suplimentar',investigationReason:'Necesită verificare.'});
@@ -116,16 +119,17 @@ test('discovery migration provides the unified inbox and workflow state without 
     assert.equal(listed.total,1);assert.equal(listed.rows[0].editorial_interest,null);assert.equal(listed.rows[0].verification_priority,null);
     await setDiscoveryStatus(pool,listed.rows[0].id,'reviewing');
     const view=discoveriesView(await listDiscoveries(pool,'rss','reviewing'),'rss','reviewing','csrf');
-    assert.match(view,/Popularitatea observată, interesul editorial și prioritatea de verificare sunt câmpuri separate/);
-    assert.match(view,/Nu deducem adevărul din volum/);
+    assert.match(view,/Interesul editorial și prioritatea de verificare rămân necompletate/);
+    assert.match(view,/Mai multe publicații înseamnă acoperire, nu dovadă/);
     const status=(await pool.query(`SELECT status FROM discovery_candidates WHERE id=$1`,[listed.rows[0].id])).rows[0].status;
     assert.equal(status,'reviewing');
     const dash=await dashboard(pool);assert.equal(dash.counts.discoveries,2);assert.equal(dash.counts.open_discoveries,2);
   } finally {await db.close();}
 });
 
-function candidate(source: DiscoverySource, canonicalUrl: string, title: string, provenanceSource=source.name): DiscoveryCandidateInput {
-  return {sourceId:source.id,sourceKind:'rss',sourceName:source.name,originalUrl:canonicalUrl,canonicalUrl,title,observedAt:'2026-10-11T10:00:00.000Z',publishedAt:null,provenance:{adapter:'test',registryId:source.id,sourceName:provenanceSource,verificationUrl:source.verification_url,viewpoint:source.viewpoint,limitation:'fixture'},popularitySignals:{}};
+function candidate(source: DiscoverySource, canonicalUrl: string, title: string, provenanceSourceOrKind: string=source.name, sourceKind: DiscoveryCandidateInput['sourceKind']='rss'): DiscoveryCandidateInput {
+  const provenanceSource=sourceKind==='rss' ? provenanceSourceOrKind : source.name;
+  return {sourceId:source.id,sourceKind,sourceName:source.name,originalUrl:canonicalUrl,canonicalUrl,title,observedAt:'2026-10-11T10:00:00.000Z',publishedAt:null,provenance:{adapter:'test',registryId:source.id,sourceName:provenanceSource,verificationUrl:source.verification_url,viewpoint:source.viewpoint,limitation:'fixture'},popularitySignals:{}};
 }
 
 test('source and candidate failures are isolated and accurately marked partial', async () => {
@@ -161,7 +165,140 @@ test('canonical URL collisions retain independent source observations', async ()
   } finally {await db.close();}
 });
 
-test('conservative grouping requires at least three meaningful title tokens', () => {
+test('provisional grouping requires multiple sources, strong overlap and a short time window', () => {
   assert.equal(conservativeGroupingKey('Alertă: trenul pleacă din București'), 'alerta|bucuresti|pleaca|trenul');
   assert.equal(conservativeGroupingKey('Un titlu'), null);
+  const make=(id:string,source_id:string,title:string,observed_at='2026-10-11T10:00:00.000Z')=>({id,source_id,source_name:source_id,title,observed_at,published_at:observed_at});
+  const hotnews=make('a','rss-hotnews','Nicușor Dan prezintă măsuri pentru trafic');
+  const digi=make('b','rss-digi24','Nicușor Dan anunță măsuri noi pentru trafic');
+  const different=make('c','rss-digi24','Nicușor Dan anunță planuri noi pentru taxe');
+  const repeated=make('d','rss-hotnews','Nicușor Dan anunță măsuri noi pentru trafic');
+  assert.equal(relatedDiscoveryCandidates(hotnews,digi),true);
+  assert.equal(relatedDiscoveryCandidates(hotnews,different),false);
+  assert.equal(relatedDiscoveryCandidates(hotnews,repeated),false);
+  assert.equal(topicComponents([hotnews,digi]).length,1);
+  assert.equal(topicComponents([hotnews]).length,0);
+  assert.equal(relatedDiscoveryCandidates(hotnews,make('e','rss-digi24','Nicușor Dan anunță măsuri noi pentru trafic','2026-10-13T10:00:00.000Z')),true);
+  assert.equal(relatedDiscoveryCandidates(hotnews,make('f','rss-digi24','Nicușor Dan anunță măsuri noi pentru trafic','2026-10-15T10:00:00.000Z')),false);
+});
+
+test('topic grouping is not transitive and every completed group stays within 72 hours', () => {
+  const make=(id:string,source_id:string,title:string,observed_at:string)=>({id,source_id,source_name:source_id,title,observed_at,published_at:observed_at});
+  const a=make('chain-a','rss-hotnews','Nicușor Dan trafic proiect transport','2026-10-11T10:00:00.000Z');
+  const b=make('chain-b','rss-digi24','Nicușor Dan trafic proiect taxe buget','2026-10-12T10:00:00.000Z');
+  const c=make('chain-c','rss-g4media','Trafic proiect taxe buget școli','2026-10-14T11:01:00.000Z');
+  assert.equal(relatedDiscoveryCandidates(a,b),true);
+  assert.equal(relatedDiscoveryCandidates(b,c),true);
+  assert.equal(relatedDiscoveryCandidates(a,c),false);
+  const groups=topicComponents([a,b,c]);
+  assert.deepEqual(groups.map(group=>group.map(candidate=>candidate.id)),[['chain-a','chain-b']]);
+  const sameSourceA=make('same-a','rss-hotnews','Nicușor Dan trafic proiect transport','2026-10-11T10:00:00.000Z');
+  const sameSourceB=make('same-b','rss-hotnews','Nicușor Dan trafic proiect transport','2026-10-11T11:00:00.000Z');
+  const otherSource=make('same-c','rss-digi24','Nicușor Dan trafic proiect transport','2026-10-11T12:00:00.000Z');
+  const repeatedSourceGroups=topicComponents([sameSourceA,sameSourceB,otherSource]);
+  for (const group of repeatedSourceGroups) {
+    assert.equal(new Set(group.map(candidate=>candidate.source_id)).size,group.length);
+  }
+});
+
+test('historical self-groups are safely and idempotently detached without deleting candidates', async () => {
+  const db=new PGlite();
+  try {
+    await db.exec(await readFile(new URL('../packages/db/migrations/0001_foundation.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../packages/db/migrations/0002_social_intake.sql',import.meta.url),'utf8'));
+    await db.exec(migration);
+    await db.exec(endpointMigration);
+    await db.exec(`INSERT INTO discovery_candidates(id,source_id,source_kind,source_name,original_url,canonical_url,title,observed_at) VALUES('discovery-${'b'.repeat(32)}','rss-hotnews','rss','HotNews','https://hotnews.ro/history','https://hotnews.ro/history','Istoric','2025-01-01T10:00:00Z')`);
+    await db.exec(`INSERT INTO discovery_groups(id,grouping_key,title,method,first_seen,last_seen) VALUES('group-${'b'.repeat(32)}','legacy-self','Istoric','conservative_title_overlap','2025-01-01T10:00:00Z','2025-01-01T10:00:00Z')`);
+    await db.exec(`INSERT INTO discovery_group_members(group_id,candidate_id) VALUES('group-${'b'.repeat(32)}','discovery-${'b'.repeat(32)}')`);
+    await db.exec(inboxMigration);
+    await db.exec(inboxMigration);
+    const candidates=await db.query(`SELECT count(*)::int AS count FROM discovery_candidates`);
+    const groups=await db.query(`SELECT count(*)::int AS count FROM discovery_groups`);
+    assert.equal((candidates.rows[0] as any).count,1);
+    assert.equal((groups.rows[0] as any).count,0);
+  } finally {await db.close();}
+});
+
+test('inbox displays a genuine multi-source topic once and keeps singleton signals separate', async () => {
+  const {db,pool}=await discoveryPool();
+  try {
+    const sources=(await loadAutomatedSources(pool)).filter(source=>['rss-hotnews','rss-digi24','rss-g4media'].includes(source.id));
+    const [hotnews,digi,g4]=sources;
+    await persistDiscoveryCandidate(pool,candidate(hotnews,'https://hotnews.ro/topic','Nicușor Dan prezintă măsuri pentru trafic'));
+    await persistDiscoveryCandidate(pool,candidate(digi,'https://digi24.ro/topic','Nicușor Dan anunță măsuri noi pentru trafic'));
+    await persistDiscoveryCandidate(pool,candidate(g4,'https://g4media.ro/single','Un subiect izolat despre administrație'));
+    await groupRecentCandidates(pool);
+    const grouped=await pool.query(`SELECT count(*)::int AS groups FROM discovery_groups`);
+    const members=await pool.query(`SELECT count(*)::int AS members FROM discovery_group_members`);
+    assert.equal(grouped.rows[0].groups,1);
+    assert.equal(members.rows[0].members,2);
+    const listed=await listDiscoveries(pool,'','',1,'diversified');
+    assert.equal(listed.total,2);
+    assert.equal(listed.rows.filter((row:any)=>row.item_type==='group').length,1);
+    assert.equal(listed.rows.find((row:any)=>row.item_type==='group').source_count,2);
+    const rendered=discoveriesView(listed,'','','csrf');
+    assert.match(rendered,/SUBIECT PROVIZORIU/);
+    assert.match(rendered,/Vezi relatările independente și proveniența/);
+    assert.match(rendered,/TikTok — planificat, nu este activ/);
+    assert.equal((await dashboard(pool)).counts.multi_source_groups,1);
+  } finally {await db.close();}
+});
+
+test('topic reconciliation rolls back to the previous complete state on failure', async () => {
+  const {db,pool}=await discoveryPool();
+  try {
+    const sources=(await loadAutomatedSources(pool)).filter(source=>source.id==='rss-hotnews'||source.id==='rss-digi24');
+    await persistDiscoveryCandidate(pool,candidate(sources[0],'https://hotnews.ro/atomic','Nicușor Dan prezintă măsuri pentru trafic'));
+    await persistDiscoveryCandidate(pool,candidate(sources[1],'https://digi24.ro/atomic','Nicușor Dan anunță măsuri noi pentru trafic'));
+    await groupRecentCandidates(pool);
+    const before=await pool.query(`SELECT g.id,g.grouping_key,count(gm.candidate_id)::int AS members FROM discovery_groups g JOIN discovery_group_members gm ON gm.group_id=g.id GROUP BY g.id,g.grouping_key`);
+    await db.exec(`CREATE OR REPLACE FUNCTION fail_group_rebuild() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture rebuild failure'; END $$; CREATE TRIGGER fail_group_rebuild_trigger BEFORE INSERT ON discovery_group_members FOR EACH ROW EXECUTE FUNCTION fail_group_rebuild()`);
+    await assert.rejects(groupRecentCandidates(pool),/fixture rebuild failure/);
+    const after=await pool.query(`SELECT g.id,g.grouping_key,count(gm.candidate_id)::int AS members FROM discovery_groups g JOIN discovery_group_members gm ON gm.group_id=g.id GROUP BY g.id,g.grouping_key`);
+    assert.deepEqual(after.rows,before.rows);
+  } finally {await db.close();}
+});
+
+test('filtered groups count matching candidates separately from contextual coverage', async () => {
+  const {db,pool}=await discoveryPool();
+  try {
+    const sources=(await loadAutomatedSources(pool)).filter(source=>['rss-hotnews','rss-digi24','google-trends-ro'].includes(source.id));
+    await persistDiscoveryCandidate(pool,candidate(sources[0],'https://hotnews.ro/filter','Nicușor Dan prezintă măsuri pentru trafic'));
+    await persistDiscoveryCandidate(pool,candidate(sources[1],'https://digi24.ro/filter','Nicușor Dan anunță măsuri noi pentru trafic'));
+    await persistDiscoveryCandidate(pool,candidate(sources[2],'https://trends.google.com/filter','Nicușor Dan discută măsuri noi pentru trafic',sources[2].name,'google_trends'));
+    await pool.query(`UPDATE discovery_candidates SET status='reviewing' WHERE canonical_url='https://digi24.ro/filter'`);
+    await groupRecentCandidates(pool);
+    const listed=await listDiscoveries(pool,'google_trends','new',1,'recent');
+    assert.equal(listed.total,1);
+    assert.equal(listed.group_total,1);
+    assert.equal(listed.rows.length,1);
+    assert.equal(listed.rows[0].matching_candidate_count,1);
+    assert.equal(listed.rows[0].candidate_count,3);
+    assert.equal(listed.rows[0].contextual_candidate_count,2);
+    assert.equal((listed.rows[0].members as any[]).filter(member=>member.matches_filter).length,1);
+    const rendered=discoveriesView(listed,'google_trends','new','csrf','recent');
+    assert.match(rendered,/1 candidați potriviți · 3 în total · 3 surse/);
+    assert.match(rendered,/membri sunt afișați doar ca acoperire contextuală/);
+    assert.match(rendered,/Acoperire contextuală/);
+  } finally {await db.close();}
+});
+
+test('filtered groups require one candidate to match channel and status together', async () => {
+  const {db,pool}=await discoveryPool();
+  try {
+    const sources=(await loadAutomatedSources(pool)).filter(source=>['rss-hotnews','google-trends-ro'].includes(source.id));
+    await persistDiscoveryCandidate(pool,candidate(sources[0],'https://hotnews.ro/filter-same','Nicușor Dan prezintă măsuri pentru trafic'));
+    await persistDiscoveryCandidate(pool,candidate(sources[1],'https://trends.google.com/filter-same','Nicușor Dan discută măsuri noi pentru trafic',sources[1].name,'google_trends'));
+    await pool.query(`UPDATE discovery_candidates SET status='reviewing' WHERE canonical_url='https://hotnews.ro/filter-same'`);
+    await groupRecentCandidates(pool);
+
+    const listed=await listDiscoveries(pool,'google_trends','reviewing',1,'recent');
+    assert.equal(listed.total,0);
+    assert.equal(listed.group_total,0);
+    assert.equal(listed.rows.length,0);
+
+    const preserved=(await pool.query(`SELECT count(*)::int AS count FROM discovery_candidates`)).rows[0];
+    assert.equal(preserved.count,2);
+  } finally {await db.close();}
 });
