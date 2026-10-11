@@ -8,8 +8,8 @@ export interface ResearchProvider {research(claim:z.infer<typeof Claim>,context:
 export interface EditorialProvider {compareEvidence(claim:z.infer<typeof Claim>,evidence:z.infer<typeof Evidence>[],context:ProviderContext):Promise<Verification>}
 export const providerConfig = [
   {id:'rss',keys:[],status:'implemented_manual'},
-  {id:'google-trends',keys:[],status:'interface_only'},
-  {id:'youtube',keys:['YOUTUBE_API_KEY'],status:'interface_only'},
+  {id:'google-trends',keys:[],status:'implemented_automatic'},
+  {id:'youtube',keys:['YOUTUBE_API_KEY'],status:'implemented_automatic_optional'},
   {id:'tiktok',keys:['TIKTOK_PROVIDER','TIKTOK_API_KEY'],status:'provider_to_select'},
   {id:'instagram',keys:['INSTAGRAM_PROVIDER'],status:'deferred'},
   {id:'facebook',keys:['FACEBOOK_PROVIDER'],status:'access_to_evaluate'},

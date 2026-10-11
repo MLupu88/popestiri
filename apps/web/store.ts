@@ -122,6 +122,16 @@ export async function addSocialSubmission(pool: pg.Pool, input: {url: string; su
     const itemId=inserted.rows[0]?.id ?? id;
     await client.query(`INSERT INTO social_intake_provenance(id,intake_id,original_url,submission_source,claim_description,investigation_reason)
       VALUES($1,$2,$3,$4,$5,$6)`,[randomUUID(),itemId,parsed.originalUrl,submissionSource,claimDescription,investigationReason]);
+    // M0.3C.1 keeps the manual channel supplementary, but makes it visible in the
+    // same discovery inbox when the discovery migration has been applied.
+    const discoveryTable=(await client.query("SELECT to_regclass('discovery_candidates') AS name")).rows[0]?.name;
+    if(discoveryTable) {
+      const candidateId=`discovery-${createHash('sha256').update(parsed.canonicalUrl).digest('hex').slice(0,32)}`;
+      await client.query(`INSERT INTO discovery_candidates(id,source_id,source_kind,source_name,original_url,canonical_url,title,summary,observed_at,provenance)
+        VALUES($1,'social-intake','social_intake','Social Intake manual',$2,$3,$4,$5,now(),$6)
+        ON CONFLICT(canonical_url) DO UPDATE SET last_seen_at=now(),updated_at=now(),provenance=discovery_candidates.provenance || EXCLUDED.provenance`,
+        [candidateId,parsed.originalUrl,parsed.canonicalUrl,claimDescription,investigationReason,JSON.stringify({adapter:'manual_social_intake',submissionSource,limitation:'Operator-submitted supplementary signal; no automated social scraping or engagement metrics.'})]);
+    }
     await client.query(`INSERT INTO audit_events(id,entity_type,entity_id,action,actor,reason,after_value)
       VALUES($1,'social_intake',$2,$3,'operator',$4,$5)`,[randomUUID(),itemId,duplicate?'social_intake_duplicate_submitted':'social_intake_submitted',duplicate?'Același link social a fost trimis din nou; proveniența a fost păstrată.':'Link social adăugat din admin.',JSON.stringify({platform:parsed.platform,originalUrl:parsed.originalUrl,submissionSource})]);
     await client.query('COMMIT');
@@ -190,8 +200,16 @@ export async function dashboard(pool: pg.Pool) {
     (SELECT count(*)::int FROM sources WHERE platform='rss' AND enabled) AS enabled,
     (SELECT count(*)::int FROM source_items) AS articles,
     (SELECT count(*)::int FROM source_items WHERE metadata->'photo' IS NOT NULL AND metadata->'photo'<>'null'::jsonb) AS photos`)).rows[0];
+  const discoveryAvailable=Boolean((await pool.query("SELECT to_regclass('discovery_candidates') AS name")).rows[0]?.name);
+  if(discoveryAvailable) {
+    const discoveryCounts=(await pool.query(`SELECT count(*)::int AS discoveries,
+      count(*) FILTER (WHERE observed_at >= now()-interval '24 hours')::int AS discoveries_last_24h,
+      count(*) FILTER (WHERE status IN ('new','queued','reviewing'))::int AS open_discoveries FROM discovery_candidates`)).rows[0];
+    Object.assign(counts,discoveryCounts);
+  } else Object.assign(counts,{discoveries:0,discoveries_last_24h:0,open_discoveries:0});
   const editions = (await pool.query(`SELECT id,edition_date,status,page_count FROM editions WHERE mode='live' ORDER BY edition_date DESC,revision DESC LIMIT 5`)).rows;
-  return {counts,editions};
+  const lastRun=discoveryAvailable ? (await pool.query(`SELECT id,started_at,finished_at,status,candidates_seen,candidates_added,groups_updated,adapter_results FROM discovery_runs ORDER BY started_at DESC LIMIT 1`)).rows[0] ?? null : null;
+  return {counts,editions,lastRun};
 }
 export async function listSources(pool: pg.Pool) {
   return (await pool.query(`SELECT s.*,count(i.id)::int AS item_count FROM sources s LEFT JOIN source_items i ON i.source_id=s.id WHERE s.platform='rss' GROUP BY s.id ORDER BY s.name`)).rows;
@@ -219,4 +237,51 @@ export async function setSourceEnabled(pool: pg.Pool, id: string, enabled: boole
   ) INSERT INTO audit_events(id,entity_type,entity_id,action,actor,reason)
     SELECT $3,'source',id,$4,'operator','Stare modificată din admin' FROM changed RETURNING entity_id`,[id,enabled,randomUUID(),enabled?'source_enabled':'source_disabled']);
   if(!result.rowCount) throw new Error('Sursa nu există.');
+}
+
+export const discoveryStatuses = ['new','queued','reviewing','dismissed','grouped'] as const;
+export type DiscoveryStatus = typeof discoveryStatuses[number];
+export const discoveryKinds = ['rss','google_trends','youtube_api','social_intake'] as const;
+export type DiscoveryKind = typeof discoveryKinds[number];
+
+function discoveryStatus(value: string): DiscoveryStatus {
+  if(!discoveryStatuses.includes(value as DiscoveryStatus)) throw new Error('Starea descoperirii nu este validă.');
+  return value as DiscoveryStatus;
+}
+
+function discoveryKind(value: string): DiscoveryKind {
+  if(!discoveryKinds.includes(value as DiscoveryKind)) throw new Error('Tipul descoperirii nu este valid.');
+  return value as DiscoveryKind;
+}
+
+export async function listDiscoveries(pool: pg.Pool, kind: string, statusValue: string, page=1) {
+  const selectedKind=kind ? discoveryKind(kind) : '';
+  const selectedStatus=statusValue ? discoveryStatus(statusValue) : '';
+  const safePage=Math.max(1,Math.min(10000,Math.floor(page)||1));
+  const where='($1::text=\'\' OR source_kind=$1) AND ($2::text=\'\' OR status=$2)';
+  const total=(await pool.query(`SELECT count(*)::int AS n FROM discovery_candidates WHERE ${where}`,[selectedKind,selectedStatus])).rows[0].n;
+  const rows=(await pool.query(`SELECT c.*,g.id AS group_id,g.title AS group_title
+    FROM discovery_candidates c LEFT JOIN discovery_group_members gm ON gm.candidate_id=c.id LEFT JOIN discovery_groups g ON g.id=gm.group_id
+    WHERE ${where} ORDER BY c.observed_at DESC,c.id LIMIT 30 OFFSET $3`,[selectedKind,selectedStatus,(safePage-1)*30])).rows;
+  return {rows,total,page:safePage};
+}
+
+export async function getDiscovery(pool: pg.Pool, id: string) {
+  const candidate=(await pool.query(`SELECT c.*,g.id AS group_id,g.title AS group_title,g.method AS group_method
+    FROM discovery_candidates c LEFT JOIN discovery_group_members gm ON gm.candidate_id=c.id LEFT JOIN discovery_groups g ON g.id=gm.group_id WHERE c.id=$1`,[id])).rows[0];
+  if(!candidate) return null;
+  const run=(await pool.query(`SELECT started_at,status,adapter_results FROM discovery_runs WHERE adapter_results::text LIKE $1 ORDER BY started_at DESC LIMIT 1`,[`%${candidate.source_kind}%`])).rows[0] ?? null;
+  return {candidate,run};
+}
+
+export async function setDiscoveryStatus(pool: pg.Pool, id: string, nextStatus: string) {
+  const next=discoveryStatus(nextStatus);
+  const result=await pool.query(`WITH changed AS (UPDATE discovery_candidates SET status=$2,updated_at=now() WHERE id=$1 RETURNING id,status)
+    INSERT INTO audit_events(id,entity_type,entity_id,action,actor,reason,after_value)
+    SELECT $3,'discovery_candidate',id,'discovery_status_changed','operator','Stare de lucru modificată din admin.',jsonb_build_object('status',status) FROM changed RETURNING entity_id`,[id,next,randomUUID()]);
+  if(!result.rowCount) throw new Error('Descoperirea nu există.');
+}
+
+export async function discoverySources(pool: pg.Pool) {
+  return (await pool.query(`SELECT id,kind,name,endpoint_url,verification_url,viewpoint,region,enabled,verified_at FROM discovery_source_registry ORDER BY kind,name`)).rows;
 }

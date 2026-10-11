@@ -11,12 +11,13 @@ Sursa de produs: brief-ul original din [main] actual.verificat/Pasted text.txt, 
 - packages/core: contracte Zod, reguli editoriale și selecție.
 - packages/db: PostgreSQL, Drizzle, migrări și checkpoint-uri.
 - packages/connectors: interfețe furnizori; implementările urmează.
+- packages/discovery: registry, adaptoare Google Trends/RSS/YouTube, deduplicare și grupare euristică.
 - packages/newspaper: contract PdfRenderer și specificație A4; implementarea rendererului urmează.
 - packages/media: modul planificat pentru assete, verificarea fotografiilor și decupaje.
 
 ## Flux țintă
 
-Colectare → normalizare → deduplicare → clustering → attention/relevance/verification priority separate → shortlist → captions/STT selectiv → afirmații → research Tavily → dovezi → verdict → redactare DeepSeek → fotografie → compoziție ediție → PDF → preflight → ready → print local.
+Colectare → normalizare → deduplicare → grupare euristică → interes editorial/virality observată/prioritate de verificare separate → shortlist → captions/STT selectiv → afirmații → research Tavily → dovezi → verdict → redactare DeepSeek → fotografie → compoziție ediție → PDF → preflight → ready → print local.
 
 Nu există ponderi numerice de ranking aprobate; nu inventăm o formulă prezentată ca decizie istorică. Nu presupunem că social media este falsă. Nu impunem un număr de debunk-uri. Nu afișăm procente de adevăr. Un verdict este despre o afirmație, nu despre întreaga platformă sau popularitatea articolului.
 
@@ -27,6 +28,8 @@ Nu există ponderi numerice de ranking aprobate; nu inventăm o formulă prezent
 Importul RSS batch folosește serviciul comun cu adminul, citește doar sursele active din PostgreSQL,
 ține un advisory lock PostgreSQL pentru a evita două batch-uri simultane și limitează concurența la două
 fluxuri. Un eșec este înregistrat per sursă și nu oprește celelalte importuri.
+
+Discovery rulează după RSS în aceeași unitate one-shot, dar folosește un advisory lock separat și persistă starea fiecărui adaptor în `discovery_runs` și `audit_events`. Un adaptor indisponibil produce o rulare parțială; nu oprește importul RSS. Popularitatea observată nu este folosită ca dovadă sau verdict.
 
 Pipeline_runs și stage_runs permit checkpoint și reluare. Implementarea curentă folosește lease de 5 minute; etapele lungi vor necesita heartbeat. Un apel extern poate fi repetat dacă procesul moare înainte să salveze rezultatul; nu pretindem exact-once pentru API-uri. Introducem dedup și limite de consum la conectori. UsageLedger păstrează costuri necunoscute ca null, nu ca zero.
 
