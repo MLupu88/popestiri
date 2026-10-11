@@ -2,9 +2,9 @@
 
 Ziar zilnic automat în română. Ținta: colectare → grupare → selecție → verificare → redactare → fotografii → PDF A4 → imprimanta locală.
 
-## Starea reală: M0.3C.1 — automated discovery foundation
+## Starea reală: M0.3C.1.1 — editorial discovery inbox
 
-Adminul oferă autentificare de operator, dashboard din PostgreSQL, inbox unificat de descoperiri,
+Adminul oferă autentificare de operator, dashboard din PostgreSQL, inbox editorial unificat de descoperiri,
 configurarea surselor RSS, lista articolelor și inventarul integrărilor.
 Paginile folosesc serverul Node existent și CSS separat; Next.js nu este încă introdus.
 Fotografiile găsite în flux sunt păstrate ca referințe cu drepturi necunoscute.
@@ -16,7 +16,7 @@ un flux eșuat nu oprește celelalte surse. Importurile individuale sunt jurnali
 Există și contractele Zod, politica editorială, migrarea PostgreSQL și mecanismul de reluare a etapelor.
 Adminul include și Social Intake pentru linkuri publice Facebook, TikTok și YouTube: fiecare URL este păstrat ca neconfirmat, duplicatele păstrează proveniența, iar metadata poate fi completată doar manual. Nu există încă evaluare AI, selecție automată, renderer PDF, QR sau trimitere CUPS. Importul RSS este programat orar pe Hetzner printr-un timer systemd host-level.
 
-Descoperirea automată folosește trei fluxuri RSS românești diversificate, Google Trends România prin exportul RSS public Trending Now și YouTube Data API când `YOUTUBE_API_KEY` este configurat. Lipsa cheii YouTube este raportată ca limitare; nu există scraping și nu se inventează metrici.
+Descoperirea automată folosește trei fluxuri RSS românești diversificate, Google Trends România prin exportul RSS public Trending Now și YouTube Data API când `YOUTUBE_API_KEY` este configurat. Inboxul grupează doar sugestii provizorii cu cel puțin două surse și păstrează candidații/proveniența separat; singletonii rămân semnale individuale. Ordinea implicită alternează sursele în mod determinist, iar ordinea cronologică rămâne disponibilă.
 Rezultatele YouTube separă căutarea recentă de chart-ul oficial `mostPopular` pentru România. Pentru verificarea directă a fluxurilor RSS și Google Trends se poate rula `pnpm discovery:validate`.
 
 ## Pornire locală
@@ -53,12 +53,14 @@ Nginx Proxy Manager trimite domeniul către popestiri-api:3100.
 `pnpm demo` produce output/edition.fixture.json. Este blocat intenționat:
 fixture-ul nu are fotografie reală aprobată. Nu apelează servicii și nu imprimă.
 
+TikTok și Facebook nu sunt încă activate automat. Căile conforme, eligibilitatea Research API/Meta și o recomandare provider-first sunt documentate în [fezabilitatea social discovery](docs/social-discovery-feasibility.md). Social Intake rămâne fallback manual opțional.
+
 ## Ce urmează
 
 Evaluarea și gruparea articolelor, verificarea cu dovezi, fotografii utilizabile,
 prima ediție PDF A4 și apoi automatizarea zilnică împreună cu agentul de print.
 Sursele sociale și ceilalți furnizori vor fi conectați incremental.
 
-Vezi [arhitectura](docs/architecture.md) și [specificația de print](docs/print-spec.md).
+Vezi [roadmap-ul](docs/roadmap.md), [arhitectura](docs/architecture.md) și [specificația de print](docs/print-spec.md).
 Pentru fluxul de linkuri sociale vezi [Social Intake](docs/social-intake.md).
 Pentru colectarea automată vezi [Automated Discovery](docs/discovery.md).

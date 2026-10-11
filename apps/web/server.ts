@@ -118,8 +118,9 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
   if(path==='/admin/discoveries') {
     const kind=discoveryKinds.includes((url.searchParams.get('kind')??'') as typeof discoveryKinds[number]) ? url.searchParams.get('kind')! : '';
     const status=discoveryStatuses.includes((url.searchParams.get('status')??'') as typeof discoveryStatuses[number]) ? url.searchParams.get('status')! : '';
+    const sort=url.searchParams.get('sort')==='recent'?'recent':'diversified';
     const page=Math.min(10000,Math.max(1,Math.floor(Number(url.searchParams.get('page'))||1)));
-    send(res,200,layout('discoveries','Descoperiri','Semnale colectate automat și manual, cu proveniență și limitări la vedere.',discoveriesView(await listDiscoveries(pool,kind,status,page),kind,status,csrf),csrf,notice));return;
+    send(res,200,layout('discoveries','Descoperiri','Inbox editorial cu subiecte provizorii, semnale individuale, proveniență și limitări la vedere.',discoveriesView(await listDiscoveries(pool,kind,status,page,sort),kind,status,csrf,sort),csrf,notice));return;
   }
   if(path==='/admin/sources') {send(res,200,layout('sources','Surse RSS','Alege publicațiile din care colectăm materialul pentru ziar.',sourcesView(await listSources(pool),csrf),csrf,notice));return;}
   if(path==='/admin/articles') {

@@ -4,13 +4,14 @@ import {readFile} from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';
 import type pg from 'pg';
 import {discoverGoogleTrends, discoverRSS, discoverYouTube, googleTrendsURL, youtubeAPIURL} from '../packages/discovery/adapters.ts';
-import {conservativeGroupingKey, loadAutomatedSources, persistDiscoveryCandidate, runDiscovery} from '../packages/discovery/service.ts';
+import {conservativeGroupingKey, groupRecentCandidates, loadAutomatedSources, persistDiscoveryCandidate, relatedDiscoveryCandidates, runDiscovery, topicComponents} from '../packages/discovery/service.ts';
 import type {DiscoveryCandidateInput, DiscoverySource, AdapterResult} from '../packages/discovery/types.ts';
 import {addSocialSubmission, listDiscoveries, setDiscoveryStatus, dashboard} from '../apps/web/store.ts';
 import {discoveriesView} from '../apps/web/views.ts';
 
 const migration = await readFile(new URL('../packages/db/migrations/0003_discovery.sql', import.meta.url), 'utf8');
 const endpointMigration = await readFile(new URL('../packages/db/migrations/0004_discovery_endpoint_validation.sql', import.meta.url), 'utf8');
+const inboxMigration = await readFile(new URL('../packages/db/migrations/0005_editorial_discovery_inbox.sql', import.meta.url), 'utf8');
 const productionCompose = await readFile(new URL('../compose.production.yaml', import.meta.url), 'utf8');
 
 function poolFor(db: PGlite) {
@@ -27,6 +28,7 @@ async function discoveryPool() {
   await db.exec(await readFile(new URL('../packages/db/migrations/0002_social_intake.sql', import.meta.url),'utf8'));
   await db.exec(migration);
   await db.exec(endpointMigration);
+  await db.exec(inboxMigration);
   return {db,pool:poolFor(db)};
 }
 
@@ -106,6 +108,7 @@ test('discovery migration provides the unified inbox and workflow state without 
     await db.exec(await readFile(new URL('../packages/db/migrations/0002_social_intake.sql',import.meta.url),'utf8'));
     await db.exec(migration);
     await db.exec(endpointMigration);
+    await db.exec(inboxMigration);
     const pool=poolFor(db);
     assert.equal((await pool.query("SELECT endpoint_url FROM discovery_source_registry WHERE id='rss-hotnews'")).rows[0].endpoint_url,'https://hotnews.ro/feed');
     await addSocialSubmission(pool,{url:'https://youtu.be/discovery-1',submissionSource:'Pont cititor',claimDescription:'Semnal social suplimentar',investigationReason:'Necesită verificare.'});
@@ -116,8 +119,8 @@ test('discovery migration provides the unified inbox and workflow state without 
     assert.equal(listed.total,1);assert.equal(listed.rows[0].editorial_interest,null);assert.equal(listed.rows[0].verification_priority,null);
     await setDiscoveryStatus(pool,listed.rows[0].id,'reviewing');
     const view=discoveriesView(await listDiscoveries(pool,'rss','reviewing'),'rss','reviewing','csrf');
-    assert.match(view,/Popularitatea observată, interesul editorial și prioritatea de verificare sunt câmpuri separate/);
-    assert.match(view,/Nu deducem adevărul din volum/);
+    assert.match(view,/Interesul editorial și prioritatea de verificare rămân necompletate/);
+    assert.match(view,/Mai multe publicații înseamnă acoperire, nu dovadă/);
     const status=(await pool.query(`SELECT status FROM discovery_candidates WHERE id=$1`,[listed.rows[0].id])).rows[0].status;
     assert.equal(status,'reviewing');
     const dash=await dashboard(pool);assert.equal(dash.counts.discoveries,2);assert.equal(dash.counts.open_discoveries,2);
@@ -161,7 +164,63 @@ test('canonical URL collisions retain independent source observations', async ()
   } finally {await db.close();}
 });
 
-test('conservative grouping requires at least three meaningful title tokens', () => {
+test('provisional grouping requires multiple sources, strong overlap and a short time window', () => {
   assert.equal(conservativeGroupingKey('Alertă: trenul pleacă din București'), 'alerta|bucuresti|pleaca|trenul');
   assert.equal(conservativeGroupingKey('Un titlu'), null);
+  const make=(id:string,source_id:string,title:string,observed_at='2026-10-11T10:00:00.000Z')=>({id,source_id,source_name:source_id,title,observed_at,published_at:observed_at});
+  const hotnews=make('a','rss-hotnews','Nicușor Dan prezintă măsuri pentru trafic');
+  const digi=make('b','rss-digi24','Nicușor Dan anunță măsuri noi pentru trafic');
+  const different=make('c','rss-digi24','Nicușor Dan anunță planuri noi pentru taxe');
+  const repeated=make('d','rss-hotnews','Nicușor Dan anunță măsuri noi pentru trafic');
+  assert.equal(relatedDiscoveryCandidates(hotnews,digi),true);
+  assert.equal(relatedDiscoveryCandidates(hotnews,different),false);
+  assert.equal(relatedDiscoveryCandidates(hotnews,repeated),false);
+  assert.equal(topicComponents([hotnews,digi]).length,1);
+  assert.equal(topicComponents([hotnews]).length,0);
+  assert.equal(relatedDiscoveryCandidates(hotnews,make('e','rss-digi24','Nicușor Dan anunță măsuri noi pentru trafic','2026-10-13T10:00:00.000Z')),true);
+  assert.equal(relatedDiscoveryCandidates(hotnews,make('f','rss-digi24','Nicușor Dan anunță măsuri noi pentru trafic','2026-10-15T10:00:00.000Z')),false);
+});
+
+test('historical self-groups are safely and idempotently detached without deleting candidates', async () => {
+  const db=new PGlite();
+  try {
+    await db.exec(await readFile(new URL('../packages/db/migrations/0001_foundation.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../packages/db/migrations/0002_social_intake.sql',import.meta.url),'utf8'));
+    await db.exec(migration);
+    await db.exec(endpointMigration);
+    await db.exec(`INSERT INTO discovery_candidates(id,source_id,source_kind,source_name,original_url,canonical_url,title,observed_at) VALUES('discovery-${'b'.repeat(32)}','rss-hotnews','rss','HotNews','https://hotnews.ro/history','https://hotnews.ro/history','Istoric','2025-01-01T10:00:00Z')`);
+    await db.exec(`INSERT INTO discovery_groups(id,grouping_key,title,method,first_seen,last_seen) VALUES('group-${'b'.repeat(32)}','legacy-self','Istoric','conservative_title_overlap','2025-01-01T10:00:00Z','2025-01-01T10:00:00Z')`);
+    await db.exec(`INSERT INTO discovery_group_members(group_id,candidate_id) VALUES('group-${'b'.repeat(32)}','discovery-${'b'.repeat(32)}')`);
+    await db.exec(inboxMigration);
+    await db.exec(inboxMigration);
+    const candidates=await db.query(`SELECT count(*)::int AS count FROM discovery_candidates`);
+    const groups=await db.query(`SELECT count(*)::int AS count FROM discovery_groups`);
+    assert.equal((candidates.rows[0] as any).count,1);
+    assert.equal((groups.rows[0] as any).count,0);
+  } finally {await db.close();}
+});
+
+test('inbox displays a genuine multi-source topic once and keeps singleton signals separate', async () => {
+  const {db,pool}=await discoveryPool();
+  try {
+    const sources=(await loadAutomatedSources(pool)).filter(source=>['rss-hotnews','rss-digi24','rss-g4media'].includes(source.id));
+    const [hotnews,digi,g4]=sources;
+    await persistDiscoveryCandidate(pool,candidate(hotnews,'https://hotnews.ro/topic','Nicușor Dan prezintă măsuri pentru trafic'));
+    await persistDiscoveryCandidate(pool,candidate(digi,'https://digi24.ro/topic','Nicușor Dan anunță măsuri noi pentru trafic'));
+    await persistDiscoveryCandidate(pool,candidate(g4,'https://g4media.ro/single','Un subiect izolat despre administrație'));
+    await groupRecentCandidates(pool);
+    const grouped=await pool.query(`SELECT count(*)::int AS groups FROM discovery_groups`);
+    const members=await pool.query(`SELECT count(*)::int AS members FROM discovery_group_members`);
+    assert.equal(grouped.rows[0].groups,1);
+    assert.equal(members.rows[0].members,2);
+    const listed=await listDiscoveries(pool,'','',1,'diversified');
+    assert.equal(listed.total,2);
+    assert.equal(listed.rows.filter((row:any)=>row.item_type==='group').length,1);
+    assert.equal(listed.rows.find((row:any)=>row.item_type==='group').source_count,2);
+    const rendered=discoveriesView(listed,'','','csrf');
+    assert.match(rendered,/SUBIECT PROVIZORIU/);
+    assert.match(rendered,/Vezi relatările independente și proveniența/);
+    assert.match(rendered,/TikTok — planificat, nu este activ/);
+    assert.equal((await dashboard(pool)).counts.multi_source_groups,1);
+  } finally {await db.close();}
 });

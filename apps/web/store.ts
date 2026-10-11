@@ -207,9 +207,19 @@ export async function dashboard(pool: pg.Pool) {
   if(discoveryAvailable) {
     const discoveryCounts=(await pool.query(`SELECT count(*)::int AS discoveries,
       count(*) FILTER (WHERE observed_at >= now()-interval '24 hours')::int AS discoveries_last_24h,
-      count(*) FILTER (WHERE status IN ('new','queued','reviewing'))::int AS open_discoveries FROM discovery_candidates`)).rows[0];
+      count(*) FILTER (WHERE status IN ('new','queued','reviewing'))::int AS open_discoveries,
+      (SELECT count(*)::int FROM discovery_source_registry) AS discovery_sources,
+      (SELECT count(*)::int FROM (
+        SELECT g.id
+        FROM discovery_groups g
+        JOIN discovery_group_members gm ON gm.group_id=g.id
+        JOIN discovery_candidates c ON c.id=gm.candidate_id
+        GROUP BY g.id
+        HAVING count(DISTINCT c.id)>1 AND count(DISTINCT c.source_id)>1
+      ) eligible_groups) AS multi_source_groups
+      FROM discovery_candidates`)).rows[0];
     Object.assign(counts,discoveryCounts);
-  } else Object.assign(counts,{discoveries:0,discoveries_last_24h:0,open_discoveries:0});
+  } else Object.assign(counts,{discoveries:0,discoveries_last_24h:0,open_discoveries:0,discovery_sources:0,multi_source_groups:0});
   const editions = (await pool.query(`SELECT id,edition_date,status,page_count FROM editions WHERE mode='live' ORDER BY edition_date DESC,revision DESC LIMIT 5`)).rows;
   const lastRun=discoveryAvailable ? (await pool.query(`SELECT id,started_at,finished_at,status,candidates_seen,candidates_added,groups_updated,adapter_results FROM discovery_runs ORDER BY started_at DESC LIMIT 1`)).rows[0] ?? null : null;
   return {counts,editions,lastRun};
@@ -257,16 +267,63 @@ function discoveryKind(value: string): DiscoveryKind {
   return value as DiscoveryKind;
 }
 
-export async function listDiscoveries(pool: pg.Pool, kind: string, statusValue: string, page=1) {
+function candidateSourceNames(candidate: any) {
+  const observations=Array.isArray(candidate.provenance?.observations) ? candidate.provenance.observations : candidate.provenance ? [candidate.provenance] : [];
+  return [...new Set([candidate.source_name,...observations.map((observation:any)=>observation?.sourceName)].filter(Boolean))];
+}
+
+export async function listDiscoveries(pool: pg.Pool, kind: string, statusValue: string, page=1, sort='diversified') {
   const selectedKind=kind ? discoveryKind(kind) : '';
   const selectedStatus=statusValue ? discoveryStatus(statusValue) : '';
   const safePage=Math.max(1,Math.min(10000,Math.floor(page)||1));
-  const where='($1::text=\'\' OR source_kind=$1) AND ($2::text=\'\' OR status=$2)';
-  const total=(await pool.query(`SELECT count(*)::int AS n FROM discovery_candidates WHERE ${where}`,[selectedKind,selectedStatus])).rows[0].n;
-  const rows=(await pool.query(`SELECT c.*,g.id AS group_id,g.title AS group_title
-    FROM discovery_candidates c LEFT JOIN discovery_group_members gm ON gm.candidate_id=c.id LEFT JOIN discovery_groups g ON g.id=gm.group_id
-    WHERE ${where} ORDER BY c.observed_at DESC,c.id LIMIT 30 OFFSET $3`,[selectedKind,selectedStatus,(safePage-1)*30])).rows;
-  return {rows,total,page:safePage};
+  const groups=(await pool.query(`SELECT g.id,g.title,g.method,g.provisional,
+      min(c.observed_at) AS first_seen,max(c.observed_at) AS last_seen,
+      count(DISTINCT c.id)::int AS candidate_count,count(DISTINCT c.source_id)::int AS source_count,
+      array_agg(DISTINCT c.source_name ORDER BY c.source_name) AS source_names,
+      jsonb_agg(jsonb_build_object('id',c.id,'title',c.title,'source_id',c.source_id,'source_name',c.source_name,
+        'source_kind',c.source_kind,'original_url',c.original_url,'canonical_url',c.canonical_url,
+        'summary',c.summary,'observed_at',c.observed_at,'published_at',c.published_at,
+        'provenance',c.provenance,'popularity_signals',c.popularity_signals,'status',c.status,
+        'editorial_interest',c.editorial_interest,'verification_priority',c.verification_priority)
+        ORDER BY c.observed_at DESC,c.id) AS members
+    FROM discovery_groups g
+    JOIN discovery_group_members gm ON gm.group_id=g.id
+    JOIN discovery_candidates c ON c.id=gm.candidate_id
+    GROUP BY g.id
+    HAVING count(DISTINCT c.id)>1 AND count(DISTINCT c.source_id)>1
+      AND ($1::text='' OR bool_or(c.source_kind=$1))
+      AND ($2::text='' OR bool_or(c.status=$2))`,[selectedKind,selectedStatus])).rows;
+  const candidates=(await pool.query(`SELECT c.* FROM discovery_candidates c
+    WHERE ($1::text='' OR c.source_kind=$1) AND ($2::text='' OR c.status=$2)
+    ORDER BY c.observed_at DESC,c.id`,[selectedKind,selectedStatus])).rows;
+  const groupedCandidateIds=new Set(groups.flatMap(group => (group.members as any[]).map(member => member.id)));
+  const groupItems=groups.map(group => ({...group,item_type:'group',id:group.id,title:group.title,observed_at:group.last_seen,
+    source_names:group.source_names ?? [],source_count:Number(group.source_count),candidate_count:Number(group.candidate_count),members:group.members ?? []}));
+  const candidateItems=candidates.filter(candidate => !groupedCandidateIds.has(candidate.id)).map(candidate => {
+    const sourceNames=candidateSourceNames(candidate);
+    return {...candidate,item_type:'candidate',source_names:sourceNames,source_count:sourceNames.length,candidate_count:1,members:[candidate]};
+  });
+  const items=[...groupItems,...candidateItems];
+  const byRecent=(left:any,right:any)=>Date.parse(String(right.observed_at))-Date.parse(String(left.observed_at)) || String(left.id).localeCompare(String(right.id));
+  items.sort(byRecent);
+  if(sort!=='recent') {
+    const queues=new Map<string,any[]>();
+    for(const item of items) {
+      const key=String((item.source_names?.[0] ?? item.source_name ?? 'Sursă nespecificată'));
+      const queue=queues.get(key) ?? []; queue.push(item); queues.set(key,queue);
+    }
+    const sourceKeys=[...queues.keys()].sort((left,right)=>left.localeCompare(right));
+    const diversified:any[]=[];
+    let remaining=items.length;
+    while(remaining) {
+      for(const sourceKey of sourceKeys) {
+        const item=queues.get(sourceKey)?.shift();
+        if(item){diversified.push(item);remaining--;}
+      }
+    }
+    items.splice(0,items.length,...diversified);
+  }
+  return {rows:items.slice((safePage-1)*30,safePage*30),total:items.length,group_total:groupItems.length,page:safePage,sort:sort==='recent'?'recent':'diversified'};
 }
 
 export async function getDiscovery(pool: pg.Pool, id: string) {

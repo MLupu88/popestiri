@@ -7,4 +7,6 @@ test('admin stylesheet keeps core layout and Social Intake styles', async () => 
   for (const selector of [':root{', '.login-card{', '.workspace{', '.sidebar{', '.page{', '.masthead img{', '.social-form,', '.social-grid{']) {
     assert.ok(css.includes(selector), `Missing CSS selector ${selector}`);
   }
+  assert.match(css,/\.discovery-list\{display:grid;grid-template-columns:minmax\(0,1fr\)/);
+  assert.ok(css.includes('.discovery-members{'));
 });

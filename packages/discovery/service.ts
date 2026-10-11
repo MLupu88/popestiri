@@ -5,6 +5,7 @@ import type {DiscoveryCandidateInput, DiscoverySource, AdapterResult} from './ty
 
 const LOCK_KEY = 'popestiri:discovery-foundation';
 const stopWords = new Set('și sau din pentru cu este sunt cele mai care unui unei către despre după între fără prin acest această aceste aceea acelea după iar dar nu o un unei la de a în pe al ai ale se ce ca cum dintr'.split(' '));
+const groupingStopWords = new Set([...stopWords, 'stiri', 'știri', 'romania', 'românia', 'anunta', 'anunță', 'anuntat', 'spune', 'spus', 'potrivit', 'astazi', 'astăzi', 'acum', 'nou', 'noi', 'fost', 'fiind', 'face', 'facut', 'făcut', 'guvernul', 'ministerul', 'presedintele', 'președintele']);
 
 function titleTokens(title: string) {
   return [...new Set(title.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9ăâîșț]+/gi,' ').split(/\s+/).filter(word => word.length >= 4 && !stopWords.has(word)))].sort();
@@ -13,6 +14,72 @@ function titleTokens(title: string) {
 export function conservativeGroupingKey(title: string) {
   const tokens = titleTokens(title);
   return tokens.length >= 3 ? tokens.join('|') : null;
+}
+
+type GroupingCandidate = {
+  id: string;
+  title: string;
+  source_id: string;
+  source_name: string;
+  observed_at: string;
+  published_at?: string | null;
+};
+
+function groupingTokens(title: string) {
+  return [...new Set(title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(/\s+/)
+    .filter(token => token.length >= 5 && !groupingStopWords.has(token)))];
+}
+
+function candidateTime(candidate: Pick<GroupingCandidate, 'observed_at' | 'published_at'>) {
+  const value = candidate.published_at || candidate.observed_at;
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? time : Date.parse(candidate.observed_at);
+}
+
+/**
+ * A deliberately narrow, explainable lead matcher. It is not an event or truth
+ * classifier: three shared non-generic title tokens, different registered
+ * sources, and a 72-hour window are required before candidates can be grouped.
+ */
+export function relatedDiscoveryCandidates(left: GroupingCandidate, right: GroupingCandidate) {
+  if (left.source_id === right.source_id) return false;
+  const leftTime = candidateTime(left);
+  const rightTime = candidateTime(right);
+  if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime) || Math.abs(leftTime - rightTime) > 72 * 60 * 60 * 1000) return false;
+  const rightTokens = new Set(groupingTokens(right.title));
+  const overlap = groupingTokens(left.title).filter(token => rightTokens.has(token));
+  if (overlap.length < 3) return false;
+  const union = new Set([...groupingTokens(left.title), ...rightTokens]);
+  return overlap.length / union.size >= 0.3;
+}
+
+export function topicComponents(candidates: GroupingCandidate[]) {
+  const parent = new Map(candidates.map(candidate => [candidate.id, candidate.id]));
+  const find = (id: string): string => {
+    const current = parent.get(id);
+    if (!current || current === id) return id;
+    const root = find(current);
+    parent.set(id, root);
+    return root;
+  };
+  const union = (left: string, right: string) => {
+    const leftRoot = find(left);
+    const rightRoot = find(right);
+    if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
+  };
+  for (let index = 0; index < candidates.length; index++) {
+    for (let next = index + 1; next < candidates.length; next++) {
+      if (relatedDiscoveryCandidates(candidates[index], candidates[next])) union(candidates[index].id, candidates[next].id);
+    }
+  }
+  const components = new Map<string, GroupingCandidate[]>();
+  for (const candidate of candidates) {
+    const root = find(candidate.id);
+    const component = components.get(root) ?? [];
+    component.push(candidate);
+    components.set(root, component);
+  }
+  return [...components.values()].filter(component => new Set(component.map(candidate => candidate.source_id)).size >= 2);
 }
 
 function observationKey(value: Record<string, unknown>) {
@@ -53,24 +120,36 @@ export async function persistDiscoveryCandidate(pool: pg.Pool, candidate: Discov
   } catch(error) {await client.query('ROLLBACK');throw error;} finally {client.release();}
 }
 
-async function groupRecentCandidates(pool: pg.Pool) {
-  const rows = (await pool.query(`SELECT id,title,observed_at FROM discovery_candidates WHERE observed_at >= now()-interval '7 days' ORDER BY observed_at DESC LIMIT 500`)).rows;
+async function clearHeuristicGroups(pool: pg.Pool) {
+  await pool.query(`DELETE FROM discovery_group_members WHERE group_id IN (SELECT id FROM discovery_groups WHERE method IN ('conservative_title_overlap','lexical_multi_source_v1'))`);
+  await pool.query(`DELETE FROM discovery_groups WHERE method IN ('conservative_title_overlap','lexical_multi_source_v1')`);
+}
+
+export async function groupRecentCandidates(pool: pg.Pool) {
+  // Reconciliation is intentionally idempotent. It only rebuilds heuristic
+  // membership; candidates, submissions, provenance and evidence are never
+  // deleted or rewritten.
+  await clearHeuristicGroups(pool);
+  const rows = (await pool.query(`SELECT id,title,source_id,source_name,observed_at,published_at
+    FROM discovery_candidates
+    WHERE observed_at >= now()-interval '7 days'
+    ORDER BY observed_at DESC,id
+    LIMIT 500`)).rows as GroupingCandidate[];
+  const components = topicComponents(rows);
   let updated = 0;
-  for(const row of rows) {
-    const key = conservativeGroupingKey(row.title);
-    if(!key) continue;
-    // Same headline tokens on different days are not assumed to be one event.
-    const groupingKey = `${key}|${new Date(row.observed_at).toISOString().slice(0,10)}`;
+  for (const component of components) {
+    const members = [...component].sort((left, right) => candidateTime(left) - candidateTime(right) || left.id.localeCompare(right.id));
+    const groupingKey = `lexical_multi_source_v1|${members.map(member => member.id).sort().join('|')}`;
     const id = `group-${createHash('sha256').update(groupingKey).digest('hex').slice(0,32)}`;
-    const group = await pool.query(`
-      INSERT INTO discovery_groups(id,grouping_key,title,method,first_seen,last_seen)
-      VALUES($1,$2,$3,'conservative_title_overlap',$4,$4)
-      ON CONFLICT(grouping_key) DO UPDATE SET last_seen=GREATEST(discovery_groups.last_seen,EXCLUDED.last_seen),updated_at=now()
-      RETURNING id
-    `,[id,groupingKey,row.title,row.observed_at]);
-    const groupId = group.rows[0]?.id ?? id;
-    const member = await pool.query(`INSERT INTO discovery_group_members(group_id,candidate_id) VALUES($1,$2) ON CONFLICT DO NOTHING`,[groupId,row.id]);
-    updated += member.rowCount ?? 0;
+    const firstSeen = new Date(Math.min(...members.map(candidate => candidateTime(candidate)))).toISOString();
+    const lastSeen = new Date(Math.max(...members.map(candidate => candidateTime(candidate)))).toISOString();
+    await pool.query(`INSERT INTO discovery_groups(id,grouping_key,title,method,provisional,first_seen,last_seen)
+      VALUES($1,$2,$3,'lexical_multi_source_v1',true,$4,$5)`,
+      [id, groupingKey, members[0].title, firstSeen, lastSeen]);
+    for (const member of members) {
+      await pool.query(`INSERT INTO discovery_group_members(group_id,candidate_id) VALUES($1,$2)`, [id, member.id]);
+    }
+    updated++;
   }
   return updated;
 }
