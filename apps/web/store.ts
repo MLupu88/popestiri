@@ -2,6 +2,7 @@ import {createHash, randomUUID} from 'node:crypto';
 import type pg from 'pg';
 import {feedURL} from '../../packages/connectors/rss.ts';
 import {importSource, saveFeedItems} from '../../packages/ingestion/rss.ts';
+import {mergeObservationEnvelope} from '../../packages/discovery/service.ts';
 export {importSource, saveFeedItems} from '../../packages/ingestion/rss.ts';
 
 export const socialPlatforms = ['facebook','tiktok','youtube'] as const;
@@ -127,10 +128,12 @@ export async function addSocialSubmission(pool: pg.Pool, input: {url: string; su
     const discoveryTable=(await client.query("SELECT to_regclass('discovery_candidates') AS name")).rows[0]?.name;
     if(discoveryTable) {
       const candidateId=`discovery-${createHash('sha256').update(parsed.canonicalUrl).digest('hex').slice(0,32)}`;
-      await client.query(`INSERT INTO discovery_candidates(id,source_id,source_kind,source_name,original_url,canonical_url,title,summary,observed_at,provenance)
-        VALUES($1,'social-intake','social_intake','Social Intake manual',$2,$3,$4,$5,now(),$6)
-        ON CONFLICT(canonical_url) DO UPDATE SET last_seen_at=now(),updated_at=now(),provenance=discovery_candidates.provenance || EXCLUDED.provenance`,
-        [candidateId,parsed.originalUrl,parsed.canonicalUrl,claimDescription,investigationReason,JSON.stringify({adapter:'manual_social_intake',submissionSource,limitation:'Operator-submitted supplementary signal; no automated social scraping or engagement metrics.'})]);
+      const observation={adapter:'manual_social_intake',registryId:'social-intake',sourceName:'Social Intake manual',submissionSource,limitation:'Operator-submitted supplementary signal; no automated social scraping or engagement metrics.'};
+      const existing=(await client.query(`SELECT provenance FROM discovery_candidates WHERE canonical_url=$1 FOR UPDATE`,[parsed.canonicalUrl])).rows[0];
+      if(existing) await client.query(`UPDATE discovery_candidates SET last_seen_at=now(),updated_at=now(),provenance=$2 WHERE canonical_url=$1`,[parsed.canonicalUrl,JSON.stringify(mergeObservationEnvelope(existing.provenance,observation))]);
+      else await client.query(`INSERT INTO discovery_candidates(id,source_id,source_kind,source_name,original_url,canonical_url,title,summary,observed_at,provenance)
+        VALUES($1,'social-intake','social_intake','Social Intake manual',$2,$3,$4,$5,now(),$6)`,
+        [candidateId,parsed.originalUrl,parsed.canonicalUrl,claimDescription,investigationReason,JSON.stringify(mergeObservationEnvelope({},observation))]);
     }
     await client.query(`INSERT INTO audit_events(id,entity_type,entity_id,action,actor,reason,after_value)
       VALUES($1,'social_intake',$2,$3,'operator',$4,$5)`,[randomUUID(),itemId,duplicate?'social_intake_duplicate_submitted':'social_intake_submitted',duplicate?'Același link social a fost trimis din nou; proveniența a fost păstrată.':'Link social adăugat din admin.',JSON.stringify({platform:parsed.platform,originalUrl:parsed.originalUrl,submissionSource})]);

@@ -17,6 +17,7 @@ Există și contractele Zod, politica editorială, migrarea PostgreSQL și mecan
 Adminul include și Social Intake pentru linkuri publice Facebook, TikTok și YouTube: fiecare URL este păstrat ca neconfirmat, duplicatele păstrează proveniența, iar metadata poate fi completată doar manual. Nu există încă evaluare AI, selecție automată, renderer PDF, QR sau trimitere CUPS. Importul RSS este programat orar pe Hetzner printr-un timer systemd host-level.
 
 Descoperirea automată folosește trei fluxuri RSS românești diversificate, Google Trends România prin exportul RSS public Trending Now și YouTube Data API când `YOUTUBE_API_KEY` este configurat. Lipsa cheii YouTube este raportată ca limitare; nu există scraping și nu se inventează metrici.
+Rezultatele YouTube separă căutarea recentă de chart-ul oficial `mostPopular` pentru România. Pentru verificarea directă a fluxurilor RSS și Google Trends se poate rula `pnpm discovery:validate`.
 
 ## Pornire locală
 

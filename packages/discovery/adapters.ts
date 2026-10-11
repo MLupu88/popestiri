@@ -27,6 +27,10 @@ export function youtubeAPIURL(value: string) {
   return safeURL(value, 'www.googleapis.com', '/youtube/v3/search');
 }
 
+export function youtubeVideosAPIURL(value = 'https://www.googleapis.com/youtube/v3/videos') {
+  return safeURL(value, 'www.googleapis.com', '/youtube/v3/videos');
+}
+
 function canonicalURL(value: string) {
   const parsed = new URL(value);
   if(!['http:','https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('URL de candidat nevalid.');
@@ -72,9 +76,14 @@ export async function discoverRSS(source: DiscoverySource, options: {download?: 
     const endpoint = feedURL(source.endpoint_url).href;
     const result = await download(endpoint);
     const items = parseFeed(result.xml, result.url);
-    return {adapter:`rss:${source.id}`,status:'succeeded',seen:items.length,candidates:items.map(item => rssCandidate(source,item,now))};
+    const candidates: DiscoveryCandidateInput[] = [];
+    let failed = 0;
+    for(const item of items) {
+      try {candidates.push(rssCandidate(source,item,now));} catch {failed++;}
+    }
+    return {adapter:`rss:${source.id}`,status:failed ? (candidates.length ? 'partial' : 'failed') : 'succeeded',seen:items.length,candidates,failed,errorCode:failed?'candidate_transform_failed':undefined,limitation:failed?'Some feed items could not be normalized; the remaining items were retained.':undefined};
   } catch(error) {
-    return {adapter:`rss:${source.id}`,status:'failed',seen:0,candidates:[],errorCode:'rss_source_unavailable',limitation:error instanceof Error ? error.message : 'Flux indisponibil.'};
+    return {adapter:`rss:${source.id}`,status:'failed',seen:0,candidates:[],failed:1,errorCode:'rss_source_unavailable',limitation:error instanceof Error ? error.message : 'Flux indisponibil.'};
   }
 }
 
@@ -99,15 +108,22 @@ export async function discoverGoogleTrends(source: DiscoverySource, options: {do
     const items = parseFeed(result.xml, result.url);
     const signals = trendsSignals(result.xml);
     const limitation='Google Trends indicates search interest and related news grouping; it does not establish truth or public importance.';
-    const candidates = items.map((item,index) => ({...rssCandidate(source,item,now,signals[index] ?? {rank:index + 1}),provenance:{...rssCandidate(source,item,now,signals[index] ?? {rank:index + 1}).provenance,limitation}}));
-    return {adapter:'google_trends_ro',status:'succeeded',seen:items.length,candidates,limitation};
+    const candidates: DiscoveryCandidateInput[] = [];
+    let failed = 0;
+    for(const [index,item] of items.entries()) {
+      try {
+        const candidate=rssCandidate(source,item,now,signals[index] ?? {rank:index + 1});
+        candidates.push({...candidate,provenance:{...candidate.provenance,limitation}});
+      } catch {failed++;}
+    }
+    return {adapter:'google_trends_ro',status:failed ? (candidates.length ? 'partial' : 'failed') : 'succeeded',seen:items.length,candidates,failed,errorCode:failed?'candidate_transform_failed':undefined,limitation};
   } catch(error) {
-    return {adapter:'google_trends_ro',status:'failed',seen:0,candidates:[],errorCode:'google_trends_feed_unavailable',limitation:error instanceof Error ? error.message : 'Google Trends feed indisponibil.'};
+    return {adapter:'google_trends_ro',status:'failed',seen:0,candidates:[],failed:1,errorCode:'google_trends_feed_unavailable',limitation:error instanceof Error ? error.message : 'Google Trends feed indisponibil.'};
   }
 }
 
-function youtubeCandidate(source: DiscoverySource, item: any, stats: any, observedAt: string, query: string): DiscoveryCandidateInput | null {
-  const id = item?.id?.videoId;
+function youtubeCandidate(source: DiscoverySource, item: any, stats: any, observedAt: string, query: string, mode: 'recent_search' | 'most_popular_chart'): DiscoveryCandidateInput | null {
+  const id = typeof item?.id === 'string' ? item.id : item?.id?.videoId;
   const snippet = item?.snippet;
   if(typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(id) || !snippet?.title) return null;
   const originalUrl = `https://www.youtube.com/watch?v=${id}`;
@@ -116,39 +132,63 @@ function youtubeCandidate(source: DiscoverySource, item: any, stats: any, observ
     originalUrl, canonicalUrl:originalUrl, title:String(snippet.title).slice(0,400),
     summary:typeof snippet.description === 'string' ? snippet.description.slice(0,1500) : null,
     observedAt, publishedAt:typeof snippet.publishedAt === 'string' ? snippet.publishedAt : null,
-    provenance:provenance(source,'youtube_data_api','Only public fields returned by the official YouTube Data API are stored; no page scraping or transcript extraction.'),
-    popularitySignals:{query, ...(stats?.viewCount ? {viewCount:String(stats.viewCount)} : {}), ...(stats?.likeCount ? {likeCount:String(stats.likeCount)} : {}), ...(stats?.commentCount ? {commentCount:String(stats.commentCount)} : {})}
+    provenance:{...provenance(source,'youtube_data_api','Only public fields returned by the official YouTube Data API are stored; no page scraping or transcript extraction.'),discoveryMode:mode},
+    popularitySignals:{observation:mode,query, ...(stats?.viewCount ? {viewCount:String(stats.viewCount)} : {}), ...(stats?.likeCount ? {likeCount:String(stats.likeCount)} : {}), ...(stats?.commentCount ? {commentCount:String(stats.commentCount)} : {})}
   };
 }
 
 export async function discoverYouTube(source: DiscoverySource, options: {apiKey?: string; fetcher?: JsonFetcher; now?: Date; queries?: string[]} = {}): Promise<AdapterResult> {
   const apiKey = options.apiKey ?? process.env.YOUTUBE_API_KEY;
-  if(!apiKey) return {adapter:'youtube_data_api_ro',status:'unavailable',seen:0,candidates:[],errorCode:'missing_youtube_api_key',limitation:'YOUTUBE_API_KEY is not configured; YouTube pages are not scraped.'};
+  if(!apiKey) return {adapter:'youtube_data_api_ro',status:'unavailable',seen:0,candidates:[],failed:0,errorCode:'missing_youtube_api_key',limitation:'YOUTUBE_API_KEY is not configured; YouTube pages are not scraped.'};
   const fetcher = options.fetcher ?? fetch;
   const now = (options.now ?? new Date()).toISOString();
-  const queries = options.queries ?? (process.env.YOUTUBE_DISCOVERY_QUERIES ?? 'știri România,actualitate România').split(',').map(value => value.trim()).filter(Boolean);
+  // Two hourly search calls stay below YouTube's 100-call/day search.list default;
+  // mostPopular and videos.list use the separate low-cost videos quota bucket.
+  const queries = (options.queries ?? (process.env.YOUTUBE_DISCOVERY_QUERIES ?? 'știri România,actualitate România').split(',').map(value => value.trim()).filter(Boolean)).slice(0,2);
   try {
     const endpoint = youtubeAPIURL(source.endpoint_url).href;
-    const results = await Promise.all(queries.slice(0,5).map(async query => {
+    const results: Array<{query:string;body:any}> = [];
+    let failed = 0;
+    for(const query of queries) {
+      try {
       const url = new URL(endpoint);
       url.search = new URLSearchParams({part:'snippet',type:'video',regionCode:'RO',relevanceLanguage:'ro',order:'date',maxResults:'10',q:query,key:apiKey}).toString();
       const response = await fetcher(url.href,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(15000)});
       if(!response.ok) throw new Error(`YouTube API HTTP ${response.status}.`);
-      return {query,body:await response.json() as any};
-    }));
+      results.push({query,body:await response.json() as any});
+      } catch {failed++;}
+    }
     const ids = [...new Set(results.flatMap(result => (result.body.items ?? []).map((item:any) => item?.id?.videoId).filter((id:any): id is string => typeof id === 'string')))].slice(0,50);
     const stats = new Map<string,any>();
     if(ids.length) {
-      const url = new URL('https://www.googleapis.com/youtube/v3/videos');
-      url.search = new URLSearchParams({part:'statistics',id:ids.join(','),key:apiKey}).toString();
-      const response = await fetcher(url.href,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(15000)});
-      if(!response.ok) throw new Error(`YouTube API statistics HTTP ${response.status}.`);
-      for(const item of ((await response.json() as any).items ?? [])) stats.set(item.id,item.statistics ?? {});
+      try {
+        const url = new URL(youtubeVideosAPIURL().href);
+        url.search = new URLSearchParams({part:'statistics',id:ids.join(','),key:apiKey}).toString();
+        const response = await fetcher(url.href,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(15000)});
+        if(!response.ok) throw new Error();
+        for(const item of ((await response.json() as any).items ?? [])) stats.set(item.id,item.statistics ?? {});
+      } catch {failed++;}
     }
-    const candidates = results.flatMap(result => (result.body.items ?? []).map((item:any) => youtubeCandidate(source,item,stats.get(item?.id?.videoId),now,result.query)).filter(Boolean) as DiscoveryCandidateInput[]);
-    return {adapter:'youtube_data_api_ro',status:'succeeded',seen:candidates.length,candidates,limitation:'YouTube counts are observed API fields, not a truth signal; search results are query- and region-dependent.'};
+    const candidates: DiscoveryCandidateInput[] = [];
+    let seen = 0;
+    for(const result of results) for(const item of (result.body.items ?? [])) {
+      seen++;
+      try {const candidate=youtubeCandidate(source,item,stats.get(item?.id?.videoId),now,result.query,'recent_search');if(candidate) candidates.push(candidate); else failed++;} catch {failed++;}
+    }
+    try {
+      const url = new URL(youtubeVideosAPIURL().href);
+      url.search = new URLSearchParams({part:'snippet,statistics',chart:'mostPopular',regionCode:'RO',maxResults:'10',key:apiKey}).toString();
+      const response = await fetcher(url.href,{headers:{Accept:'application/json'},signal:AbortSignal.timeout(15000)});
+      if(!response.ok) throw new Error();
+      for(const item of ((await response.json() as any).items ?? [])) {
+        seen++;
+        try {const candidate=youtubeCandidate(source,item,item?.statistics,now,'mostPopular:RO','most_popular_chart');if(candidate) candidates.push(candidate); else failed++;} catch {failed++;}
+      }
+    } catch {failed++;}
+    const status=failed ? (candidates.length ? 'partial' : 'failed') : 'succeeded';
+    return {adapter:'youtube_data_api_ro',status,seen,candidates,failed,errorCode:failed?'youtube_partial_failure':undefined,limitation:'Recent search results and the official mostPopular Romania chart are separate signals. Counts are observed API fields, not a truth signal; search results are query- and region-dependent.'};
   } catch(error) {
-    return {adapter:'youtube_data_api_ro',status:'failed',seen:0,candidates:[],errorCode:'youtube_api_unavailable',limitation:error instanceof Error ? error.message : 'YouTube API indisponibil.'};
+    return {adapter:'youtube_data_api_ro',status:'failed',seen:0,candidates:[],failed:1,errorCode:'youtube_api_unavailable',limitation:error instanceof Error ? error.message : 'YouTube API indisponibil.'};
   }
 }
 

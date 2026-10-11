@@ -4,11 +4,14 @@ import {readFile} from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';
 import type pg from 'pg';
 import {discoverGoogleTrends, discoverRSS, discoverYouTube, googleTrendsURL, youtubeAPIURL} from '../packages/discovery/adapters.ts';
-import {conservativeGroupingKey} from '../packages/discovery/service.ts';
+import {conservativeGroupingKey, loadAutomatedSources, persistDiscoveryCandidate, runDiscovery} from '../packages/discovery/service.ts';
+import type {DiscoveryCandidateInput, DiscoverySource, AdapterResult} from '../packages/discovery/types.ts';
 import {addSocialSubmission, listDiscoveries, setDiscoveryStatus, dashboard} from '../apps/web/store.ts';
 import {discoveriesView} from '../apps/web/views.ts';
 
 const migration = await readFile(new URL('../packages/db/migrations/0003_discovery.sql', import.meta.url), 'utf8');
+const endpointMigration = await readFile(new URL('../packages/db/migrations/0004_discovery_endpoint_validation.sql', import.meta.url), 'utf8');
+const productionCompose = await readFile(new URL('../compose.production.yaml', import.meta.url), 'utf8');
 
 function poolFor(db: PGlite) {
   const query = async (sql: string, args?: unknown[]) => {
@@ -18,12 +21,42 @@ function poolFor(db: PGlite) {
   return {query,connect:async()=>({query,release(){}})} as unknown as pg.Pool;
 }
 
+async function discoveryPool() {
+  const db=new PGlite();
+  await db.exec(await readFile(new URL('../packages/db/migrations/0001_foundation.sql', import.meta.url),'utf8'));
+  await db.exec(await readFile(new URL('../packages/db/migrations/0002_social_intake.sql', import.meta.url),'utf8'));
+  await db.exec(migration);
+  await db.exec(endpointMigration);
+  return {db,pool:poolFor(db)};
+}
+
 test('official discovery endpoints are constrained to the validated public surfaces', () => {
   assert.equal(googleTrendsURL('https://trends.google.com/trending/rss?geo=RO').hostname, 'trends.google.com');
   assert.equal(youtubeAPIURL('https://www.googleapis.com/youtube/v3/search').pathname, '/youtube/v3/search');
   assert.throws(() => googleTrendsURL('https://trends.google.com/trending/rss?geo=US'));
   assert.throws(() => googleTrendsURL('https://evil.example/trending/rss?geo=RO'));
   assert.throws(() => youtubeAPIURL('http://www.googleapis.com/youtube/v3/search'));
+});
+
+test('production worker receives YouTube configuration through Compose without embedding secrets', () => {
+  assert.match(productionCompose,/YOUTUBE_API_KEY: \$\{YOUTUBE_API_KEY:-\}/);
+  assert.match(productionCompose,/YOUTUBE_DISCOVERY_QUERIES: \$\{YOUTUBE_DISCOVERY_QUERIES:-/);
+  assert.doesNotMatch(productionCompose,/YOUTUBE_API_KEY:\s+['"]?[A-Za-z0-9_-]{20,}/);
+});
+
+test('manual Social Intake registry rows are never passed to automated adapters', async () => {
+  const {db,pool}=await discoveryPool();
+  try {
+    const sources=await loadAutomatedSources(pool);
+    assert.equal(sources.some(source=>source.kind==='social_intake'),false);
+    assert.equal(sources.length,5);
+    const executed:string[]=[];
+    await runDiscovery(pool,{adapter:async source=>{
+      executed.push(source.kind);
+      return {adapter:`fixture:${source.id}`,status:'succeeded',seen:0,failed:0,candidates:[]};
+    }});
+    assert.equal(executed.includes('social_intake'),false);
+  } finally {await db.close();}
 });
 
 test('Google Trends RSS discovery preserves provenance and observed rank/traffic signals', async () => {
@@ -51,7 +84,7 @@ test('YouTube discovery honestly stops without a key and never falls back to scr
 test('YouTube discovery uses official API responses and stores only returned metrics', async () => {
   const source:any={id:'youtube-api-ro',kind:'youtube_api',name:'YouTube Data API — România',endpoint_url:'https://www.googleapis.com/youtube/v3/search',verification_url:'https://developers.google.com/youtube/v3/docs/search/list',viewpoint:'video signal',region:'RO',enabled:true,config:{},verified_at:'2026-10-11T00:00:00.000Z'};
   const requested:string[]=[];
-  const fetcher=async(url:string)=>{requested.push(url);if(url.includes('/search?')) return new Response(JSON.stringify({items:[{id:{videoId:'abc_123'},snippet:{title:'Titlu video',description:'Descriere',publishedAt:'2026-10-11T09:00:00.000Z'}}]}),{status:200});return new Response(JSON.stringify({items:[{id:'abc_123',statistics:{viewCount:'1234',commentCount:'7'}}]}),{status:200});};
+  const fetcher=async(url:string)=>{requested.push(url);if(url.includes('/search?')) return new Response(JSON.stringify({items:[{id:{videoId:'abc_123'},snippet:{title:'Titlu video',description:'Descriere',publishedAt:'2026-10-11T09:00:00.000Z'}}]}),{status:200});if(url.includes('chart=mostPopular')) return new Response(JSON.stringify({items:[{id:'popular_1',snippet:{title:'Video popular',description:'Descriere populară',publishedAt:'2026-10-11T08:00:00.000Z'},statistics:{viewCount:'9000'}}]}),{status:200});return new Response(JSON.stringify({items:[{id:'abc_123',statistics:{viewCount:'1234',commentCount:'7'}}]}),{status:200});};
   const result=await discoverYouTube(source,{apiKey:'test-key',queries:['știri România'],fetcher,now:new Date('2026-10-11T10:00:00.000Z')});
   assert.equal(result.status,'succeeded');
   const candidate=result.candidates[0];
@@ -60,7 +93,9 @@ test('YouTube discovery uses official API responses and stores only returned met
   assert.equal(signals.viewCount,'1234');
   assert.equal(signals.commentCount,'7');
   assert.equal(signals.likeCount,undefined);
-  assert.equal(requested.length,2);
+  assert.equal(requested.length,3);
+  assert.ok(requested.some(url=>url.includes('chart=mostPopular')&&url.includes('regionCode=RO')));
+  assert.equal(result.candidates.some(candidate=>candidate.popularitySignals?.observation==='most_popular_chart'),true);
   assert.ok(requested.every(url=>url.startsWith('https://www.googleapis.com/youtube/v3/')));
 });
 
@@ -70,9 +105,12 @@ test('discovery migration provides the unified inbox and workflow state without 
     await db.exec(await readFile(new URL('../packages/db/migrations/0001_foundation.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../packages/db/migrations/0002_social_intake.sql',import.meta.url),'utf8'));
     await db.exec(migration);
+    await db.exec(endpointMigration);
     const pool=poolFor(db);
+    assert.equal((await pool.query("SELECT endpoint_url FROM discovery_source_registry WHERE id='rss-hotnews'")).rows[0].endpoint_url,'https://hotnews.ro/feed');
     await addSocialSubmission(pool,{url:'https://youtu.be/discovery-1',submissionSource:'Pont cititor',claimDescription:'Semnal social suplimentar',investigationReason:'Necesită verificare.'});
     assert.equal((await pool.query('SELECT source_kind FROM discovery_candidates WHERE canonical_url=$1',['https://www.youtube.com/watch?v=discovery-1'])).rows[0].source_kind,'social_intake');
+    assert.equal((await pool.query('SELECT provenance->\'observations\'->0->>\'sourceName\' AS source_name FROM discovery_candidates WHERE canonical_url=$1',['https://www.youtube.com/watch?v=discovery-1'])).rows[0].source_name,'Social Intake manual');
     await pool.query(`INSERT INTO discovery_candidates(id,source_id,source_kind,source_name,original_url,canonical_url,title,observed_at,popularity_signals) VALUES('discovery-${'a'.repeat(32)}','rss-hotnews','rss','HotNews','https://hotnews.ro/a','https://hotnews.ro/a','Trei cuvinte despre eveniment',now(),'{}')`);
     const listed=await listDiscoveries(pool,'rss','new');
     assert.equal(listed.total,1);assert.equal(listed.rows[0].editorial_interest,null);assert.equal(listed.rows[0].verification_priority,null);
@@ -83,6 +121,43 @@ test('discovery migration provides the unified inbox and workflow state without 
     const status=(await pool.query(`SELECT status FROM discovery_candidates WHERE id=$1`,[listed.rows[0].id])).rows[0].status;
     assert.equal(status,'reviewing');
     const dash=await dashboard(pool);assert.equal(dash.counts.discoveries,2);assert.equal(dash.counts.open_discoveries,2);
+  } finally {await db.close();}
+});
+
+function candidate(source: DiscoverySource, canonicalUrl: string, title: string, provenanceSource=source.name): DiscoveryCandidateInput {
+  return {sourceId:source.id,sourceKind:'rss',sourceName:source.name,originalUrl:canonicalUrl,canonicalUrl,title,observedAt:'2026-10-11T10:00:00.000Z',publishedAt:null,provenance:{adapter:'test',registryId:source.id,sourceName:provenanceSource,verificationUrl:source.verification_url,viewpoint:source.viewpoint,limitation:'fixture'},popularitySignals:{}};
+}
+
+test('source and candidate failures are isolated and accurately marked partial', async () => {
+  const {db,pool}=await discoveryPool();
+  try {
+    await pool.query("UPDATE discovery_source_registry SET enabled=false WHERE id NOT IN ('rss-hotnews','rss-digi24')");
+    const adapter=async(source: DiscoverySource): Promise<AdapterResult> => {
+      if(source.id==='rss-digi24') throw new Error('fixture provider unavailable');
+      return {adapter:`fixture:${source.id}`,status:'succeeded',seen:2,failed:0,candidates:[candidate({...source,id:'missing-source'} as DiscoverySource,'https://invalid.example/bad','Bad candidate'),candidate(source,'https://valid.example/good','Un eveniment valid România')]};
+    };
+    const summary=await runDiscovery(pool,{adapter});
+    assert.equal(summary.status,'partial');
+    assert.equal(summary.candidatesAdded,1);
+    assert.equal(summary.adapters.length,2);
+    assert.equal(summary.adapters.some(result=>result.failed>0),true);
+    assert.equal((await pool.query("SELECT count(*)::int AS count FROM discovery_candidates")).rows[0].count,1);
+    const run=(await pool.query("SELECT status,adapter_results FROM discovery_runs ORDER BY started_at DESC LIMIT 1")).rows[0];
+    assert.equal(run.status,'partial');
+    assert.match(JSON.stringify(run.adapter_results),/adapter_source_failure|failed/);
+  } finally {await db.close();}
+});
+
+test('canonical URL collisions retain independent source observations', async () => {
+  const {db,pool}=await discoveryPool();
+  try {
+    const sources=(await loadAutomatedSources(pool)).filter(source=>source.id==='rss-hotnews'||source.id==='rss-digi24');
+    await pool.query("UPDATE discovery_source_registry SET enabled=false WHERE id NOT IN ('rss-hotnews','rss-digi24')");
+    for(const source of sources) await persistDiscoveryCandidate(pool,candidate(source,'https://shared.example/story','Același eveniment observat'));
+    const row=(await pool.query("SELECT provenance FROM discovery_candidates WHERE canonical_url='https://shared.example/story'")).rows[0];
+    const observations=row.provenance.observations;
+    assert.equal(observations.length,2);
+    assert.deepEqual(new Set(observations.map((observation:any)=>observation.sourceName)),new Set(['HotNews','Digi24']));
   } finally {await db.close();}
 });
 

@@ -19,7 +19,8 @@ test('sessions expire, reject tampering and token rotation; production cookies a
  assert.match(sessionCookie(session,true),/HttpOnly; SameSite=Strict; Max-Age=28800; Secure/);
 });
 test('RSS blocks private destinations, alternate numeric IPs, credentials and unsafe protocols',()=>{
- for(const ip of ['127.0.0.1','10.1.2.3','172.16.0.1','192.168.1.2','169.254.169.254','100.64.1.2','198.18.0.1','0.0.0.0','224.1.2.3','::1']) assert.equal(publicIPv4(ip),false,ip);
+ for(const ip of ['127.0.0.1','10.1.2.3','172.16.0.1','192.168.1.2','192.0.0.1','169.254.169.254','100.64.1.2','198.18.0.1','0.0.0.0','224.1.2.3','::1']) assert.equal(publicIPv4(ip),false,ip);
+ assert.equal(publicIPv4('192.0.66.98'),true);
  assert.equal(publicIPv4('8.8.8.8'),true);
  for(const url of ['http://example.com/rss','https://127.1/rss','https://2130706433/rss','https://[::1]/','https://user:password@example.com/rss','https://example.com:8080/rss']) assert.throws(()=>feedURL(url));
 });
