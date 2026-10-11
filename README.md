@@ -2,7 +2,7 @@
 
 Ziar zilnic automat în română. Ținta: colectare → grupare → selecție → verificare → redactare → fotografii → PDF A4 → imprimanta locală.
 
-## Starea reală: M0.3A — import RSS multi-sursă
+## Starea reală: M0.3B — intake social și import RSS multi-sursă
 
 Adminul oferă autentificare de operator, dashboard din PostgreSQL, configurarea surselor,
 import manual RSS/Atom, lista articolelor și inventarul integrărilor.
@@ -13,7 +13,7 @@ un flux eșuat nu oprește celelalte surse. Importurile individuale sunt jurnali
 `audit_events` și păstrează articolele ca neevaluate editorial.
 
 Există și contractele Zod, politica editorială, migrarea PostgreSQL și mecanismul de reluare a etapelor.
-Nu există încă evaluare AI, selecție automată, renderer PDF, QR, scheduler sau trimitere CUPS.
+Adminul include și Social Intake pentru linkuri publice Facebook, TikTok și YouTube: fiecare URL este păstrat ca neconfirmat, duplicatele păstrează proveniența, iar metadata poate fi completată doar manual. Nu există încă evaluare AI, selecție automată, renderer PDF, QR, scheduler sau trimitere CUPS.
 
 ## Pornire locală
 
@@ -56,3 +56,4 @@ prima ediție PDF A4 și apoi automatizarea zilnică împreună cu agentul de pr
 Sursele sociale și ceilalți furnizori vor fi conectați incremental.
 
 Vezi [arhitectura](docs/architecture.md) și [specificația de print](docs/print-spec.md).
+Pentru fluxul de linkuri sociale vezi [Social Intake](docs/social-intake.md).
