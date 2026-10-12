@@ -128,7 +128,8 @@ async function handler(req: IncomingMessage, res: ServerResponse) {
     send(res,200,layout('discoveries','Descoperiri','Inbox editorial cu subiecte provizorii, semnale individuale, proveniență și limitări la vedere.',discoveriesView(await listDiscoveries(pool,kind,status,page,sort),kind,status,csrf,sort),csrf,notice));return;
   }
   if(path==='/admin/claims') {
-    const classification=claimLeadClassifications.includes((url.searchParams.get('classification')??'') as typeof claimLeadClassifications[number]) ? url.searchParams.get('classification')! : '';
+    const requestedClassification=url.searchParams.has('classification') ? (url.searchParams.get('classification')??'') : 'testable_claim';
+    const classification=claimLeadClassifications.includes(requestedClassification as typeof claimLeadClassifications[number]) ? requestedClassification : '';
     const status=claimLeadStatuses.includes((url.searchParams.get('status')??'') as typeof claimLeadStatuses[number]) ? url.searchParams.get('status')! : '';
     const page=Math.min(10000,Math.max(1,Math.floor(Number(url.searchParams.get('page'))||1)));
     send(res,200,layout('claims','Afirmații în circulație','Afirmații publice care merită investigate, cu textul și limitele observării la vedere.',claimRadarView(await listClaimLeads(pool,classification,status,page),classification,status,csrf),csrf,notice));return;

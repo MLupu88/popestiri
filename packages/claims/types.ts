@@ -45,6 +45,14 @@ export interface ClaimExtractionProvider {
 export type ClaimLeadSpread = {
   status: 'observed' | 'insufficient_history' | 'not_available' | 'not_applicable';
   observations: number;
+  comparisons: Array<{
+    candidateId: string;
+    metricSource: string;
+    first: {observedAt: string; viewCount: string | null; commentCount: string | null};
+    latest: {observedAt: string; viewCount: string | null; commentCount: string | null};
+    viewChange: string | null;
+    commentChange: string | null;
+  }>;
   first?: {observedAt: string; viewCount: string | null; commentCount: string | null};
   latest?: {observedAt: string; viewCount: string | null; commentCount: string | null};
   viewChange?: string | null;

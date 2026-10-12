@@ -129,7 +129,7 @@ export async function addSocialSubmission(pool: pg.Pool, input: {url: string; su
     const discoveryTable=(await client.query("SELECT to_regclass('discovery_candidates') AS name")).rows[0]?.name;
     if(discoveryTable) {
       const candidateId=`discovery-${createHash('sha256').update(parsed.canonicalUrl).digest('hex').slice(0,32)}`;
-      const observation={adapter:'manual_social_intake',registryId:'social-intake',sourceName:'Social Intake manual',submissionSource,limitation:'Operator-submitted supplementary signal; no automated social scraping or engagement metrics.'};
+      const observation={adapter:'manual_social_intake',registryId:'social-intake',sourceName:'Social Intake manual',platform:parsed.platform,submissionSource,limitation:'Operator-submitted supplementary signal; no automated social scraping or engagement metrics.'};
       const existing=(await client.query(`SELECT provenance FROM discovery_candidates WHERE canonical_url=$1 FOR UPDATE`,[parsed.canonicalUrl])).rows[0];
       if(existing) await client.query(`UPDATE discovery_candidates SET last_seen_at=now(),updated_at=now(),provenance=$2 WHERE canonical_url=$1`,[parsed.canonicalUrl,JSON.stringify(mergeObservationEnvelope(existing.provenance,observation))]);
       else await client.query(`INSERT INTO discovery_candidates(id,source_id,source_kind,source_name,original_url,canonical_url,title,summary,observed_at,provenance)

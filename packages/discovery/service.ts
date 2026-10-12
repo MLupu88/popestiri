@@ -214,7 +214,8 @@ export async function runDiscovery(pool: pg.Pool, options: {adapter?: (source: D
     }
     const groupsUpdated = await groupRecentCandidates(pool);
     let claimRadar: DiscoveryRunSummary['claimRadar'] = {candidates:0,leads:0,failed:0,method:'migration_pending'};
-    if((await pool.query("SELECT to_regclass('claim_leads') AS name")).rows[0]?.name) {
+    const claimRadarTables=(await pool.query("SELECT to_regclass('claim_leads') AS leads,to_regclass('claim_radar_candidate_state') AS state")).rows[0];
+    if(claimRadarTables?.leads && claimRadarTables?.state) {
       try {claimRadar=await runClaimRadar(pool);} catch {claimRadar={...claimRadar,failed:1,method:'failed'};}
     }
     const hasFailure = adapterResults.some(result => result.status === 'failed' || result.status === 'partial' || result.status === 'unavailable' || result.failed > 0) || claimRadar.failed>0;
