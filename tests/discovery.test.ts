@@ -86,7 +86,7 @@ test('YouTube discovery honestly stops without a key and never falls back to scr
 test('YouTube discovery uses official API responses and stores only returned metrics', async () => {
   const source:any={id:'youtube-api-ro',kind:'youtube_api',name:'YouTube Data API — România',endpoint_url:'https://www.googleapis.com/youtube/v3/search',verification_url:'https://developers.google.com/youtube/v3/docs/search/list',viewpoint:'video signal',region:'RO',enabled:true,config:{},verified_at:'2026-10-11T00:00:00.000Z'};
   const requested:string[]=[];
-  const fetcher=async(url:string)=>{requested.push(url);if(url.includes('/search?')) return new Response(JSON.stringify({items:[{id:{videoId:'abc_123'},snippet:{title:'Titlu video',description:'Descriere',publishedAt:'2026-10-11T09:00:00.000Z'}}]}),{status:200});if(url.includes('chart=mostPopular')) return new Response(JSON.stringify({items:[{id:'popular_1',snippet:{title:'Video popular',description:'Descriere populară',publishedAt:'2026-10-11T08:00:00.000Z'},statistics:{viewCount:'9000'}}]}),{status:200});return new Response(JSON.stringify({items:[{id:'abc_123',statistics:{viewCount:'1234',commentCount:'7'}}]}),{status:200});};
+  const fetcher=async(url:string)=>{requested.push(url);if(url.includes('/search?')) return new Response(JSON.stringify({items:[{id:{videoId:'abc_123'},snippet:{title:'Titlu video',description:'Descriere',publishedAt:'2026-10-11T09:00:00.000Z',channelId:'channel-123',channelTitle:'Canal România'}}]}),{status:200});if(url.includes('chart=mostPopular')) return new Response(JSON.stringify({items:[{id:'popular_1',snippet:{title:'Video popular',description:'Descriere populară',publishedAt:'2026-10-11T08:00:00.000Z',channelId:'popular-channel',channelTitle:'Canal popular'},statistics:{viewCount:'9000'}}]}),{status:200});return new Response(JSON.stringify({items:[{id:'abc_123',statistics:{viewCount:'1234',commentCount:'7'}}]}),{status:200});};
   const result=await discoverYouTube(source,{apiKey:'test-key',queries:['știri România'],fetcher,now:new Date('2026-10-11T10:00:00.000Z')});
   assert.equal(result.status,'succeeded');
   const candidate=result.candidates[0];
@@ -94,6 +94,11 @@ test('YouTube discovery uses official API responses and stores only returned met
   const signals=candidate.popularitySignals ?? {};
   assert.equal(signals.viewCount,'1234');
   assert.equal(signals.commentCount,'7');
+  assert.equal(candidate.provenance.channelId,'channel-123');
+  assert.equal(candidate.provenance.channelTitle,'Canal România');
+  assert.equal(candidate.provenance.videoId,'abc_123');
+  assert.equal(candidate.provenance.apiProvider,'YouTube Data API v3');
+  assert.equal(signals.capturedAt,'2026-10-11T10:00:00.000Z');
   assert.equal(signals.likeCount,undefined);
   assert.equal(requested.length,3);
   assert.ok(requested.some(url=>url.includes('chart=mostPopular')&&url.includes('regionCode=RO')));

@@ -2,7 +2,7 @@
 
 Ziar zilnic automat în română. Ținta: colectare → grupare → selecție → verificare → redactare → fotografii → PDF A4 → imprimanta locală.
 
-## Starea reală: M0.3C.1.1 — editorial discovery inbox
+## Starea reală: M0.3C.2A — Viral Claim Radar Foundation
 
 Adminul oferă autentificare de operator, dashboard din PostgreSQL, inbox editorial unificat de descoperiri,
 configurarea surselor RSS, lista articolelor și inventarul integrărilor.
@@ -18,6 +18,8 @@ Adminul include și Social Intake pentru linkuri publice Facebook, TikTok și Yo
 
 Descoperirea automată folosește trei fluxuri RSS românești diversificate, Google Trends România prin exportul RSS public Trending Now și YouTube Data API când `YOUTUBE_API_KEY` este configurat. Inboxul grupează doar sugestii provizorii cu cel puțin două surse și păstrează candidații/proveniența separat; singletonii rămân semnale individuale. Ordinea implicită alternează sursele în mod determinist, iar ordinea cronologică rămâne disponibilă.
 Rezultatele YouTube separă căutarea recentă de chart-ul oficial `mostPopular` pentru România. Pentru verificarea directă a fluxurilor RSS și Google Trends se poate rula `pnpm discovery:validate`.
+
+Radarul de afirmații (`/admin/claims`) separă candidatele brute de `claim_leads`, referințele originale și observațiile publice timestamped. O singură măsurătoare YouTube este afișată ca „insufficient history”; nu există scor de viralitate sau verdict automat. Extracția deterministă poate rămâne `uncertain`, iar DeepSeek este opțional, dezactivat implicit și limitat per rulare. Detaliile și M0.3C.2B sunt în [Claim Radar](docs/claim-radar.md).
 
 ## Pornire locală
 
