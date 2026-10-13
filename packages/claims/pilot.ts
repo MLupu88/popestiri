@@ -38,6 +38,7 @@ export type SemanticPilotResult = {
   acceptedExtraction: boolean;
   rejectedResponse: boolean;
   deterministicFallback: boolean;
+  extractionOrigin: 'cache_hit'|'fresh_deepseek'|'deterministic'|'deterministic_fallback';
   usage: SemanticExtractionUsage|null;
 };
 
@@ -58,6 +59,9 @@ export type SemanticPilotReport = {
     rejectedResponses: number;
     cacheHits: number;
     deterministicFallbacks: number;
+    freshDeepSeekSuccesses: number;
+    deterministicExtractions: number;
+    cachedExtractions: number;
     usage: SemanticExtractionUsage;
   };
 };
@@ -196,6 +200,7 @@ function usageTotal(left:SemanticExtractionUsage,right:SemanticExtractionUsage):
   const add=(a:number|null,b:number|null) => a===null || b===null ? null : a+b;
   return {promptTokens:add(left.promptTokens,right.promptTokens),completionTokens:add(left.completionTokens,right.completionTokens),totalTokens:add(left.totalTokens,right.totalTokens)};
 }
+const unknownUsage=():SemanticExtractionUsage => ({promptTokens:null,completionTokens:null,totalTokens:null});
 
 export async function runSemanticClaimPilot(pool:pg.Pool, options:SemanticPilotOptions = {}):Promise<SemanticPilotReport> {
   const mode=options.mode ?? 'preview';
@@ -226,6 +231,7 @@ export async function runSemanticClaimPilot(pool:pg.Pool, options:SemanticPilotO
       let fallback:string|undefined;
       let apiAttempted=false,rejectedResponse=false,deterministicFallback=false;
       let extractionUsage:SemanticExtractionUsage|null=null;
+      let extractionOrigin:SemanticPilotResult['extractionOrigin'];
       if(!extraction) {
         const budgetExhausted=options.paid===true && provider.method==='deepseek' && paidCalls>=maxCalls;
         apiAttempted=provider.method==='deepseek' && !budgetExhausted;
@@ -233,12 +239,14 @@ export async function runSemanticClaimPilot(pool:pg.Pool, options:SemanticPilotO
         if(budgetExhausted) {
           fallback='paid_budget_exhausted';deterministicFallback=true;deterministicFallbacks++;
           extraction=deterministicSemanticExtract(input(candidate));
+          extractionOrigin='deterministic_fallback';
         } else {
           try {
             const candidateExtraction=await provider.extractSemantic(input(candidate));
             extractionUsage=provider.lastUsage ?? null;
             extraction=validateSemanticExtraction(candidateExtraction,input(candidate));
             acceptedExtractions++;
+            extractionOrigin=provider.method==='deepseek' ? 'fresh_deepseek' : 'deterministic';
           } catch {
             extractionUsage=provider.lastUsage ?? null;
             rejectedResponse=apiAttempted;
@@ -246,17 +254,19 @@ export async function runSemanticClaimPilot(pool:pg.Pool, options:SemanticPilotO
             deterministicFallback=true;deterministicFallbacks++;
             fallback=apiAttempted ? 'provider_rejected_or_unavailable' : 'deterministic_provider_error';
             extraction=deterministicSemanticExtract(input(candidate));
+            extractionOrigin='deterministic_fallback';
           }
         }
         extraction=validateSemanticExtraction(extraction,input(candidate));
       }
-      usage=usageTotal(usage,extractionUsage ?? {promptTokens:0,completionTokens:0,totalTokens:0});
-      results.push({candidateId:candidate.id,sourceKind:candidate.source_kind,beforeClassifications:beforeClassifications(candidate.existing_classifications),afterClassification:extraction.classification,assertionCount:extraction.assertions.length,sourceGrounding:diagnostics(extraction,fallback),extraction,cacheHit,apiAttempted,acceptedExtraction:cacheHit || !deterministicFallback, rejectedResponse, deterministicFallback,usage:extractionUsage});
+      if(cacheHit) extractionOrigin='cache_hit';
+      if(apiAttempted) usage=extractionUsage===null ? unknownUsage() : usageTotal(usage,extractionUsage);
+      results.push({candidateId:candidate.id,sourceKind:candidate.source_kind,beforeClassifications:beforeClassifications(candidate.existing_classifications),afterClassification:extraction.classification,assertionCount:extraction.assertions.length,sourceGrounding:diagnostics(extraction,fallback),extraction,cacheHit,apiAttempted,acceptedExtraction:cacheHit || !deterministicFallback, rejectedResponse, deterministicFallback,extractionOrigin:extractionOrigin!,usage:extractionUsage});
     }
     const before:Record<string,number>={},after:Record<string,number>={};
     for(const result of results) {for(const item of result.beforeClassifications) before[item]=(before[item]??0)+1;after[result.afterClassification]=(after[result.afterClassification]??0)+1;}
-    if(apiAttempts===0) usage={promptTokens:null,completionTokens:null,totalTokens:null};
-    const report:SemanticPilotReport={runId,mode,sampleLimit,paidEnabled:Boolean(options.paid),maxCalls,candidates:results,summary:{candidateCount:results.length,beforeClassifications:before,afterClassifications:after,assertions:results.reduce((total,item)=>total+item.assertionCount,0),apiAttempts,acceptedExtractions,rejectedResponses,cacheHits:results.filter(item=>item.cacheHit).length,deterministicFallbacks,usage}};
+    if(apiAttempts===0) usage=unknownUsage();
+    const report:SemanticPilotReport={runId,mode,sampleLimit,paidEnabled:Boolean(options.paid),maxCalls,candidates:results,summary:{candidateCount:results.length,beforeClassifications:before,afterClassifications:after,assertions:results.reduce((total,item)=>total+item.assertionCount,0),apiAttempts,acceptedExtractions,rejectedResponses,cacheHits:results.filter(item=>item.cacheHit).length,deterministicFallbacks,freshDeepSeekSuccesses:results.filter(item=>item.extractionOrigin==='fresh_deepseek').length,deterministicExtractions:results.filter(item=>item.extractionOrigin==='deterministic').length,cachedExtractions:results.filter(item=>item.extractionOrigin==='cache_hit').length,usage}};
     if(runId) {
       const client=await pool.connect();
       try {
@@ -267,11 +277,11 @@ export async function runSemanticClaimPilot(pool:pg.Pool, options:SemanticPilotO
           const preservePriorState=preserveSuccessfulDeepSeek && (result.deterministicFallback || provider.method==='deterministic_v1');
           if(!preservePriorState) await client.query(`INSERT INTO semantic_claim_pilot_state(candidate_id,content_fingerprint,extraction,extraction_method,extraction_model,extraction_version,paid_call,grounding_diagnostics,usage)
             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
-            ON CONFLICT(candidate_id) DO UPDATE SET content_fingerprint=EXCLUDED.content_fingerprint,extraction=EXCLUDED.extraction,extraction_method=EXCLUDED.extraction_method,extraction_model=EXCLUDED.extraction_model,extraction_version=EXCLUDED.extraction_version,paid_call=EXCLUDED.paid_call,last_processed_at=now(),grounding_diagnostics=EXCLUDED.grounding_diagnostics,usage=EXCLUDED.usage`,[candidate.id,fingerprint,JSON.stringify(result.extraction),result.extraction.extractionMethod,result.extraction.extractionModel,result.extraction.extractionVersion,result.apiAttempted && options.paid===true,JSON.stringify(result.sourceGrounding),JSON.stringify(result.usage ?? {})]);
-          await client.query(`INSERT INTO semantic_claim_pilot_results(run_id,candidate_id,content_fingerprint,before_classifications,after_classification,assertion_count,extraction,grounding_diagnostics,cache_hit,paid_call,api_attempted,accepted_extraction,rejected_response,deterministic_fallback,usage)
-            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,[runId,candidate.id,fingerprint,JSON.stringify(result.beforeClassifications),result.afterClassification,result.assertionCount,JSON.stringify(result.extraction),JSON.stringify(result.sourceGrounding),result.cacheHit,result.apiAttempted && options.paid===true,result.apiAttempted,result.acceptedExtraction,result.rejectedResponse,result.deterministicFallback,JSON.stringify(result.usage ?? {})]);
+            ON CONFLICT(candidate_id) DO UPDATE SET content_fingerprint=EXCLUDED.content_fingerprint,extraction=EXCLUDED.extraction,extraction_method=EXCLUDED.extraction_method,extraction_model=EXCLUDED.extraction_model,extraction_version=EXCLUDED.extraction_version,paid_call=EXCLUDED.paid_call,last_processed_at=now(),grounding_diagnostics=EXCLUDED.grounding_diagnostics,usage=EXCLUDED.usage`,[candidate.id,fingerprint,JSON.stringify(result.extraction),result.extraction.extractionMethod,result.extraction.extractionModel,result.extraction.extractionVersion,result.apiAttempted && options.paid===true,JSON.stringify(result.sourceGrounding),JSON.stringify(result.usage)]);
+          await client.query(`INSERT INTO semantic_claim_pilot_results(run_id,candidate_id,content_fingerprint,before_classifications,after_classification,assertion_count,extraction,grounding_diagnostics,cache_hit,paid_call,api_attempted,accepted_extraction,rejected_response,deterministic_fallback,extraction_origin,usage)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,[runId,candidate.id,fingerprint,JSON.stringify(result.beforeClassifications),result.afterClassification,result.assertionCount,JSON.stringify(result.extraction),JSON.stringify(result.sourceGrounding),result.cacheHit,result.apiAttempted && options.paid===true,result.apiAttempted,result.acceptedExtraction,result.rejectedResponse,result.deterministicFallback,result.extractionOrigin,JSON.stringify(result.usage)]);
         }
-        await client.query(`UPDATE semantic_claim_pilot_runs SET candidate_count=$2,api_attempts=$3,accepted_extractions=$4,rejected_responses=$5,cache_hits=$6,deterministic_fallbacks=$7,usage=$8,status='completed',completed_at=now() WHERE id=$1`,[runId,results.length,apiAttempts,acceptedExtractions,rejectedResponses,report.summary.cacheHits,deterministicFallbacks,JSON.stringify(usage)]);
+        await client.query(`UPDATE semantic_claim_pilot_runs SET candidate_count=$2,api_attempts=$3,accepted_extractions=$4,rejected_responses=$5,cache_hits=$6,deterministic_fallbacks=$7,fresh_deepseek_successes=$8,deterministic_extractions=$9,cached_extractions=$10,usage=$11,status='completed',completed_at=now() WHERE id=$1`,[runId,results.length,apiAttempts,acceptedExtractions,rejectedResponses,report.summary.cacheHits,deterministicFallbacks,report.summary.freshDeepSeekSuccesses,report.summary.deterministicExtractions,report.summary.cachedExtractions,JSON.stringify(usage)]);
         await client.query('COMMIT');
       } catch(error) {
         await client.query('ROLLBACK');

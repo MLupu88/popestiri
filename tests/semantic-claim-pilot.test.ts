@@ -58,7 +58,28 @@ test('semantic DeepSeek validation rejects unsupported assertions, false quotati
   const extractor=new DeepSeekClaimExtractor('test-key','model',async()=>new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(unsupported)}}]}),{status:200}));
   await assert.rejects(extractor.extractSemantic(candidate),/grounded/);
   const negated={...unsupported,assertions:[{...unsupported.assertions[0],assertionText:'Parlamentul nu votează bugetul național',evidence:evidence(candidate,'title',candidate.title)}]};
-  assert.throws(()=>validateDeepSeekSemanticExtraction(negated,candidate),/negation|grounded/);
+  assert.throws(()=>validateDeepSeekSemanticExtraction(negated,candidate),/negation|polarity|grounded/);
+});
+
+test('semantic grounding rejects both directions of Romanian polarity reversal but preserves an attributed denial',()=>{
+  const make=(candidate:ClaimExtractionInput,assertionText:string,attributedSpeaker:string|null=null,verbatimQuote:SemanticClaimExtraction['assertions'][number]['verbatimQuote']=null)=>({
+    sourceHeadline:candidate.title,
+    assertions:[{assertionText,machineParaphrase:null,attributedSpeaker,verbatimQuote,testability:'testable' as const,editorialRelevance:'high' as const,verificationPriority:'high' as const,truthfulness:'unassessed' as const,evidence:evidence(candidate,'title',candidate.title)}],
+    classification:'testable_claim' as const,
+    extractionMethod:'deepseek' as const,
+    extractionModel:'fixture',
+    extractionVersion:'semantic-deepseek-v2',
+    limitations:'Fixture polarity test.',
+    truthfulness:'unassessed' as const,
+    evidence:evidence(candidate,'title',candidate.title)
+  });
+  const negative=input('Guvernul nu alocă 12 milioane de lei','Declarația este citată în material.','polarity-negative');
+  assert.throws(()=>validateDeepSeekSemanticExtraction(make(negative,'Guvernul alocă 12 milioane de lei'),negative),/polarity/);
+  const affirmative=input('Guvernul alocă 12 milioane de lei','Declarația este citată în material.','polarity-affirmative');
+  assert.throws(()=>validateDeepSeekSemanticExtraction(make(affirmative,'Guvernul nu alocă 12 milioane de lei'),affirmative),/polarity/);
+  const denial=input('Ministrul Economiei a declarat: „Guvernul nu alocă 12 milioane de lei.”','Declarația este citată în material.','polarity-denial');
+  const preserved=make(denial,'Guvernul nu alocă 12 milioane de lei','Ministrul Economiei',{text:'Guvernul nu alocă 12 milioane de lei.',speaker:'Ministrul Economiei',field:'title'});
+  assert.equal(validateDeepSeekSemanticExtraction(preserved,denial).assertions[0].attributedSpeaker,'Ministrul Economiei');
 });
 
 test('DeepSeek semantic requests use bounded output tokens and retain provider usage without inventing cost',async()=>{
@@ -69,6 +90,9 @@ test('DeepSeek semantic requests use bounded output tokens and retain provider u
   await extractor.extractSemantic(candidate);
   assert.equal(extractor.lastUsage?.totalTokens,50);
   assert.equal(JSON.parse(String(request?.body)).max_tokens,256);
+  const noUsage=new DeepSeekClaimExtractor('fixture-key','fixture-model',async()=>new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(output)}}]}),{status:200}));
+  await noUsage.extractSemantic(candidate);
+  assert.equal(noUsage.lastUsage,null);
 });
 
 test('semantic schema rejects a testable classification without an objectively testable assertion',()=>{
@@ -87,6 +111,10 @@ test('pilot preview and dry-run are read-only and report before/after grounding 
     assert.equal(preview.candidates[0].afterClassification,'testable_claim');
     assert.equal(preview.candidates[0].sourceGrounding.sourceConsistent,true);
     assert.equal(preview.candidates[0].sourceGrounding.independentVerification,'not_performed');
+    assert.equal(preview.summary.freshDeepSeekSuccesses,0);
+    assert.equal(preview.summary.deterministicExtractions,1);
+    assert.equal(preview.summary.cachedExtractions,0);
+    assert.equal(preview.candidates[0].extractionOrigin,'deterministic');
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM semantic_claim_pilot_runs')).rows[0].n,0);
     const dry=await runSemanticClaimPilot(pool,{mode:'dry_run',sampleLimit:1});
     assert.equal(dry.runId,null);
@@ -114,9 +142,13 @@ test('pilot apply supports multiple contradictory assertions without duplicate c
     assert.equal(first.candidates[0].assertionCount,2);
     assert.equal(first.candidates[0].sourceGrounding.truthfulness,'unassessed');
     assert.equal(calls,1);
+    assert.equal(first.summary.freshDeepSeekSuccesses,1);
+    assert.equal(first.summary.deterministicExtractions,0);
     const second=await runSemanticClaimPilot(pool,{mode:'apply',sampleLimit:1,provider,maxCalls:1});
     assert.equal(second.candidates[0].cacheHit,true);
     assert.equal(second.candidates[0].apiAttempted,false);
+    assert.equal(second.summary.cachedExtractions,1);
+    assert.equal(second.candidates[0].extractionOrigin,'cache_hit');
     assert.equal(calls,1);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM semantic_claim_pilot_state')).rows[0].n,1);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM semantic_claim_pilot_results')).rows[0].n,2);
@@ -162,6 +194,11 @@ test('pilot supports explicit candidate IDs and reports API rejection, fallback 
     assert.equal(report.summary.acceptedExtractions,0);
     assert.equal(report.summary.rejectedResponses,1);
     assert.equal(report.summary.deterministicFallbacks,1);
+    assert.equal(report.summary.freshDeepSeekSuccesses,0);
+    assert.equal(report.summary.deterministicExtractions,0);
+    assert.equal(report.candidates[0].extractionOrigin,'deterministic_fallback');
+    assert.equal(report.candidates[0].usage,null);
+    assert.deepEqual(report.summary.usage,{promptTokens:null,completionTokens:null,totalTokens:null});
     assert.equal(report.candidates[0].sourceGrounding.sourceConsistent,true);
     assert.equal(report.candidates[0].sourceGrounding.independentVerification,'not_performed');
     assert.equal(report.candidates[0].acceptedExtraction,false);
