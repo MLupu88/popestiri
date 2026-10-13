@@ -23,6 +23,44 @@ Cheile de grupare cunoscute sunt înguste și includ polaritatea, entitatea și 
 
 Workerul procesează incremental candidații noi sau actualizați într-un batch bounded și păstrează `claim_radar_candidate_state`. Pentru candidatele istorice, `runClaimRadarBackfill` este o operațiune repetabilă și idempotentă; se poate relua până când răspunde `complete=true`.
 
+## M0.3C.2A.1 — pilot semantic controlat
+
+Pilotul semantic este separat de workerul orar. `apps/worker/claim-pilot.ts` este o comandă
+explicită, bounded la cel mult 20 de candidați, care citește titlul și descrierea existente și
+produce un raport cu clasificarea anterioară, clasificarea propusă, numărul de aserțiuni și
+diagnosticele de source-grounding. Nu rescrie `claim_leads`, proveniența, starea editorială sau
+`claim_observations`; rezultatele aplicate sunt păstrate separat în migrarea 0008.
+
+Înaintea oricărei acțiuni asupra unui dataset real, checkout-ul și migrarea trebuie verificate
+într-un mediu controlat. Raportul read-only poate fi evaluat fără secrete și fără scrieri:
+
+```sh
+docker compose --env-file .env.production -f compose.production.yaml run --rm --no-deps api node apps/worker/claim-pilot.ts --preview --limit=20
+docker compose --env-file .env.production -f compose.production.yaml run --rm --no-deps api node apps/worker/claim-pilot.ts --dry-run --limit=20
+```
+
+Ambele moduri folosesc extracția deterministică în configurația normală;
+nu apelează servicii plătite și nu creează rânduri de pilot. `--apply` este necesar pentru a
+păstra raportul și cache-ul pilotului, iar același fingerprint de conținut nu este re-extras.
+Starea existentă a radarului rămâne sursa pentru clasificarea „before”.
+
+Un apel plătit ulterior necesită separat `--apply --paid`, `--max-calls=N` cu `1 <= N <= 20`,
+`SEMANTIC_CLAIM_PILOT_PAID=true` ca override separat, cheia/modelul DeepSeek și aprobarea editorială. Cheia se
+păstrează numai în `.env.production` cu permisiuni 0600; nu se pune în argumente, rapoarte sau
+loguri. În Compose, override-ul explicit poate fi transmis fără a tipări cheia:
+
+```sh
+docker compose --env-file .env.production -f compose.production.yaml run --rm --no-deps -e SEMANTIC_CLAIM_PILOT_PAID=true api node apps/worker/claim-pilot.ts --apply --paid --limit=20 --max-calls=10
+```
+
+Pentru acest milestone nu se rulează această comandă și nu se fac apeluri plătite.
+
+Evaluatorul trebuie să compare manual un eșantion stratificat RSS/YouTube: recall pentru
+aserțiuni numerice și declarații atribuite, false positives din titluri senzaționaliste,
+articole vagi, citate inexistente, contradicții și prompt injection. `truthfulness` rămâne
+întotdeauna `unassessed`; testabilitatea, relevanța editorială și prioritatea de verificare
+sunt câmpuri separate și nu constituie verdict.
+
 ## YouTube și buget
 
 Adaptorul folosește în continuare numai YouTube Data API oficial: maximum două `search.list` pe rulare, plus `videos.list` și chart-ul `mostPopular` existent. Acum păstrează `videoId`, `channelId`, `channelTitle`, query, modul de căutare și providerul API separat. Buletinele precum „Știrile de la ora 14” sunt păstrate brut, dar clasificate `generic_broadcast` și nu devin automat afirmații prioritare.

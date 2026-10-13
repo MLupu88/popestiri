@@ -27,6 +27,51 @@ export const claimExtractionSchema = z.object({
 
 export type ClaimExtraction = z.infer<typeof claimExtractionSchema>;
 
+export const claimTestability = ['testable','not_testable','uncertain'] as const;
+export type ClaimTestability = typeof claimTestability[number];
+export const claimEditorialRelevance = ['high','medium','low','uncertain'] as const;
+export type ClaimEditorialRelevance = typeof claimEditorialRelevance[number];
+export const claimVerificationPriority = ['high','medium','low','unassigned'] as const;
+export type ClaimVerificationPriority = typeof claimVerificationPriority[number];
+
+const quotedStatementSchema = z.object({
+  text: z.string().min(1).max(1000),
+  speaker: z.string().min(1).max(200),
+  field: z.enum(['title','summary'])
+});
+
+export const semanticClaimAssertionSchema = z.object({
+  assertionText: z.string().min(1).max(500),
+  machineParaphrase: z.string().max(500).nullable(),
+  attributedSpeaker: z.string().max(200).nullable(),
+  verbatimQuote: quotedStatementSchema.nullable(),
+  testability: z.enum(claimTestability),
+  editorialRelevance: z.enum(claimEditorialRelevance),
+  verificationPriority: z.enum(claimVerificationPriority),
+  truthfulness: z.literal('unassessed'),
+  evidence: z.array(claimEvidenceSchema).min(1).max(10)
+});
+
+export const semanticClaimExtractionSchema = z.object({
+  sourceHeadline: z.string().max(1000),
+  assertions: z.array(semanticClaimAssertionSchema).max(8),
+  classification: z.enum(claimClassifications),
+  extractionMethod: z.enum(['deterministic_v1','deepseek']),
+  extractionModel: z.string().max(200).nullable(),
+  extractionVersion: z.string().max(100),
+  limitations: z.string().min(1).max(2000),
+  truthfulness: z.literal('unassessed'),
+  evidence: z.array(claimEvidenceSchema).max(20)
+});
+
+export type SemanticClaimAssertion = z.infer<typeof semanticClaimAssertionSchema>;
+export type SemanticClaimExtraction = z.infer<typeof semanticClaimExtractionSchema>;
+
+export interface SemanticClaimExtractionProvider {
+  readonly method: 'deterministic_v1'|'deepseek';
+  extractSemantic(input: ClaimExtractionInput): Promise<SemanticClaimExtraction>;
+}
+
 export type ClaimExtractionInput = {
   candidateId: string;
   originalUrl: string;
