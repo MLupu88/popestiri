@@ -12,6 +12,7 @@
     "demo": "node apps/worker/demo.ts",
     "ingest": "node apps/worker/ingest.ts",
     "discovery:validate": "node apps/worker/validate-discovery.ts",
+    "claims:pilot": "node apps/worker/claim-pilot.ts",
     "db:migrate": "node packages/db/migrate.ts",
     "start:api": "node apps/web/server.ts"
   },
