@@ -44,6 +44,11 @@ test('production worker receives YouTube configuration through Compose without e
   assert.match(productionCompose,/YOUTUBE_API_KEY: \$\{YOUTUBE_API_KEY:-\}/);
   assert.match(productionCompose,/YOUTUBE_DISCOVERY_QUERIES: \$\{YOUTUBE_DISCOVERY_QUERIES:-/);
   assert.doesNotMatch(productionCompose,/YOUTUBE_API_KEY:\s+['"]?[A-Za-z0-9_-]{20,}/);
+  assert.match(productionCompose,/DEEPSEEK_CLAIM_EXTRACTION_ENABLED: "\$\{DEEPSEEK_CLAIM_EXTRACTION_ENABLED:-false\}"/);
+  assert.match(productionCompose,/DEEPSEEK_CLAIM_MAX_CALLS_PER_RUN: "\$\{DEEPSEEK_CLAIM_MAX_CALLS_PER_RUN:-0\}"/);
+  assert.match(productionCompose,/DEEPSEEK_API_KEY: "\$\{DEEPSEEK_API_KEY:-\}"/);
+  assert.match(productionCompose,/DEEPSEEK_FAST_MODEL: "\$\{DEEPSEEK_FAST_MODEL:-\}"/);
+  assert.doesNotMatch(productionCompose,/DEEPSEEK_API_KEY:\s+['"]?[A-Za-z0-9_-]{20,}/);
 });
 
 test('manual Social Intake registry rows are never passed to automated adapters', async () => {

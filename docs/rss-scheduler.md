@@ -28,6 +28,13 @@ sudo systemctl enable --now popestiri-rss-ingest.timer
 The service reads `.env.production` through Docker Compose. Do not put secrets in the
 unit files or command line, and do not print `.env.production` while troubleshooting.
 
+The same Compose `api` service environment is used by the hourly one-shot worker. In
+particular, `DEEPSEEK_CLAIM_EXTRACTION_ENABLED`, `DEEPSEEK_CLAIM_MAX_CALLS_PER_RUN`,
+`DEEPSEEK_API_KEY` and `DEEPSEEK_FAST_MODEL` are passed from `.env.production` to the
+disposable `api` container. Their Compose defaults are `false`, `0`, and empty values,
+so paid claim extraction remains disabled unless explicitly configured. The systemd
+unit does not expose these values in its command line or logs.
+
 ## Verification
 
 Confirm that the timer is enabled and has a next trigger:
