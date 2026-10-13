@@ -167,6 +167,25 @@ function validateSemanticEvidence(item: {field:string;excerpt:string;sourceUrl:s
 const negativeAssertionPattern=/\b(nu|fara|niciun|niciunul|dezminte|dezminț|nega|neaga|negat|respinge|respins|contrazice|contrazis|fals|nu exista)\b/i;
 const numberSignature=(value:string) => (value.match(/\b\d[\d\s.,]*\b/g) ?? []).map(item=>item.replace(/\s+/g,'').replace(/,/g,'.'));
 const polarityOf=(value:string):'affirmative'|'negative' => negativeAssertionPattern.test(fold(value)) ? 'negative' : 'affirmative';
+const negativeWords=new Set(['nu','fara','niciun','niciunul','dezminte','dezminț','nega','neaga','negat','respinge','respins','contrazice','contrazis','fals']);
+
+function evidencePolarity(assertionText:string,evidence:string):'affirmative'|'negative'|null {
+  const assertionTokens=meaningfulTokens(assertionText).filter(token=>!negativeWords.has(token));
+  if(!assertionTokens.length) return null;
+  const fragments=clean(evidence,2000).split(/[.!?;]+/).map(item=>item.trim()).filter(Boolean);
+  const candidates=fragments.map(fragment=>{
+    const tokens=evidenceText(fragment).split(' ').filter(Boolean);
+    const positions=assertionTokens.flatMap(token=>tokens.flatMap((item,index)=>item===token ? [index] : []));
+    const score=new Set(positions).size;
+    if(!score) return null;
+    const negative=tokens.some((token,index)=>negativeWords.has(token) && positions.some(position=>Math.abs(position-index)<=2));
+    return {score,polarity:negative ? 'negative' as const : 'affirmative' as const};
+  }).filter((item):item is {score:number;polarity:'affirmative'|'negative'}=>item!==null);
+  if(!candidates.length) return null;
+  const bestScore=Math.max(...candidates.map(item=>item.score));
+  const best=new Set(candidates.filter(item=>item.score===bestScore).map(item=>item.polarity));
+  return best.size===1 ? [...best][0] : null;
+}
 
 function validateSemanticAssertion(assertion: SemanticClaimExtraction['assertions'][number], input: ClaimExtractionInput, sourceText: Record<string,string>) {
   const evidenceSource=assertion.evidence.map(item=>item.excerpt).join(' ');
@@ -178,7 +197,8 @@ function validateSemanticAssertion(assertion: SemanticClaimExtraction['assertion
   const assertionNumbers=numberSignature(assertion.assertionText);
   const sourceNumbers=numberSignature(wholeSource);
   if(assertionNumbers.some(number=>!sourceNumbers.includes(number))) throw new Error('DeepSeek semantic numeric assertion is not present in the candidate content.');
-  if(polarityOf(assertion.assertionText)!==polarityOf(evidenceSource)) throw new Error('DeepSeek semantic assertion polarity does not match the attributed evidence.');
+  const sourcePolarity=evidencePolarity(assertion.assertionText,evidenceSource);
+  if(sourcePolarity===null || polarityOf(assertion.assertionText)!==sourcePolarity) throw new Error('DeepSeek semantic assertion polarity does not match the attributed evidence.');
   if(assertion.attributedSpeaker && !evidenceText(evidenceSource).includes(evidenceText(assertion.attributedSpeaker))) throw new Error('DeepSeek semantic attribution is not present in the attributed evidence.');
   if(assertion.verbatimQuote) {
     if(assertion.verbatimQuote.speaker!==assertion.attributedSpeaker || !sourceText[assertion.verbatimQuote.field].includes(assertion.verbatimQuote.text)) throw new Error('DeepSeek semantic quotation is not verbatim source text.');

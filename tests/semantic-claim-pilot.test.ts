@@ -7,7 +7,7 @@ import {deterministicSemanticExtract, DeepSeekClaimExtractor, validateDeepSeekSe
 import type {ClaimExtractionInput, SemanticClaimExtraction, SemanticClaimExtractionProvider} from '../packages/claims/types.ts';
 import {runSemanticClaimPilot} from '../packages/claims/pilot.ts';
 
-const migrations=['0001_foundation.sql','0002_social_intake.sql','0003_discovery.sql','0004_discovery_endpoint_validation.sql','0005_editorial_discovery_inbox.sql','0006_claim_radar.sql','0007_claim_radar_processing.sql','0008_semantic_claim_pilot.sql','0009_semantic_claim_pilot_hardening.sql'];
+const migrations=['0001_foundation.sql','0002_social_intake.sql','0003_discovery.sql','0004_discovery_endpoint_validation.sql','0005_editorial_discovery_inbox.sql','0006_claim_radar.sql','0007_claim_radar_processing.sql','0008_semantic_claim_pilot.sql','0009_semantic_claim_pilot_hardening.sql','0010_semantic_claim_pilot_accounting.sql'];
 async function poolFor(db:PGlite) {
   for(const migration of migrations) await db.exec(await readFile(new URL(`../packages/db/migrations/${migration}`,import.meta.url),'utf8'));
   const query=async(sql:string,args?:unknown[])=>{const result=await db.query(sql,args);return {rows:result.rows,rowCount:result.affectedRows??result.rows.length};};
@@ -77,6 +77,8 @@ test('semantic grounding rejects both directions of Romanian polarity reversal b
   assert.throws(()=>validateDeepSeekSemanticExtraction(make(negative,'Guvernul alocă 12 milioane de lei'),negative),/polarity/);
   const affirmative=input('Guvernul alocă 12 milioane de lei','Declarația este citată în material.','polarity-affirmative');
   assert.throws(()=>validateDeepSeekSemanticExtraction(make(affirmative,'Guvernul nu alocă 12 milioane de lei'),affirmative),/polarity/);
+  const mixed=input('Guvernul alocă 12 milioane de lei, iar opoziția nu contestă măsura.','Materialul păstrează două afirmații distincte.','polarity-mixed');
+  assert.throws(()=>validateDeepSeekSemanticExtraction(make(mixed,'Guvernul nu alocă 12 milioane de lei'),mixed),/polarity/);
   const denial=input('Ministrul Economiei a declarat: „Guvernul nu alocă 12 milioane de lei.”','Declarația este citată în material.','polarity-denial');
   const preserved=make(denial,'Guvernul nu alocă 12 milioane de lei','Ministrul Economiei',{text:'Guvernul nu alocă 12 milioane de lei.',speaker:'Ministrul Economiei',field:'title'});
   assert.equal(validateDeepSeekSemanticExtraction(preserved,denial).assertions[0].attributedSpeaker,'Ministrul Economiei');
