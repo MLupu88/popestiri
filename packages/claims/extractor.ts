@@ -164,8 +164,9 @@ function validateSemanticEvidence(item: {field:string;excerpt:string;sourceUrl:s
   if(!item.excerpt || !evidenceText(item.excerpt) || !evidenceText(source).includes(evidenceText(item.excerpt))) throw new Error('DeepSeek semantic evidence excerpt is not present in the attributed source field.');
 }
 
-const negativeAssertionPattern=/\b(nu|fara|fără|niciun|niciunul|dezminte|dezminț|fals|nu exista|nu există)\b/i;
+const negativeAssertionPattern=/\b(nu|fara|niciun|niciunul|dezminte|dezminț|nega|neaga|negat|respinge|respins|contrazice|contrazis|fals|nu exista)\b/i;
 const numberSignature=(value:string) => (value.match(/\b\d[\d\s.,]*\b/g) ?? []).map(item=>item.replace(/\s+/g,'').replace(/,/g,'.'));
+const polarityOf=(value:string):'affirmative'|'negative' => negativeAssertionPattern.test(fold(value)) ? 'negative' : 'affirmative';
 
 function validateSemanticAssertion(assertion: SemanticClaimExtraction['assertions'][number], input: ClaimExtractionInput, sourceText: Record<string,string>) {
   const evidenceSource=assertion.evidence.map(item=>item.excerpt).join(' ');
@@ -177,7 +178,7 @@ function validateSemanticAssertion(assertion: SemanticClaimExtraction['assertion
   const assertionNumbers=numberSignature(assertion.assertionText);
   const sourceNumbers=numberSignature(wholeSource);
   if(assertionNumbers.some(number=>!sourceNumbers.includes(number))) throw new Error('DeepSeek semantic numeric assertion is not present in the candidate content.');
-  if(negativeAssertionPattern.test(assertion.assertionText) && !negativeAssertionPattern.test(evidenceSource)) throw new Error('DeepSeek semantic negation is not present in the attributed evidence.');
+  if(polarityOf(assertion.assertionText)!==polarityOf(evidenceSource)) throw new Error('DeepSeek semantic assertion polarity does not match the attributed evidence.');
   if(assertion.attributedSpeaker && !evidenceText(evidenceSource).includes(evidenceText(assertion.attributedSpeaker))) throw new Error('DeepSeek semantic attribution is not present in the attributed evidence.');
   if(assertion.verbatimQuote) {
     if(assertion.verbatimQuote.speaker!==assertion.attributedSpeaker || !sourceText[assertion.verbatimQuote.field].includes(assertion.verbatimQuote.text)) throw new Error('DeepSeek semantic quotation is not verbatim source text.');
@@ -247,7 +248,8 @@ export class DeepSeekClaimExtractor implements ClaimExtractionProvider {
     if(!response.ok) throw new Error(`DeepSeek HTTP ${response.status}.`);
     const body=await response.json() as any;
     const usage=body?.usage;
-    this.lastUsage={promptTokens:typeof usage?.prompt_tokens==='number' ? usage.prompt_tokens : null,completionTokens:typeof usage?.completion_tokens==='number' ? usage.completion_tokens : null,totalTokens:typeof usage?.total_tokens==='number' ? usage.total_tokens : null};
+    const hasReportedUsage=typeof usage?.prompt_tokens==='number' || typeof usage?.completion_tokens==='number' || typeof usage?.total_tokens==='number';
+    this.lastUsage=hasReportedUsage ? {promptTokens:typeof usage?.prompt_tokens==='number' ? usage.prompt_tokens : null,completionTokens:typeof usage?.completion_tokens==='number' ? usage.completion_tokens : null,totalTokens:typeof usage?.total_tokens==='number' ? usage.total_tokens : null} : null;
     const raw=body?.choices?.[0]?.message?.content;
     const parsed=typeof raw==='string' ? JSON.parse(raw) : raw;
     return validateDeepSeekSemanticExtraction({...parsed,extractionMethod:'deepseek',extractionModel:this.model,extractionVersion:SEMANTIC_DEEPSEEK_VERSION},input);
