@@ -127,13 +127,15 @@ function youtubeCandidate(source: DiscoverySource, item: any, stats: any, observ
   const snippet = item?.snippet;
   if(typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(id) || !snippet?.title) return null;
   const originalUrl = `https://www.youtube.com/watch?v=${id}`;
+  const channelId = typeof snippet.channelId === 'string' ? snippet.channelId : null;
+  const channelTitle = typeof snippet.channelTitle === 'string' ? snippet.channelTitle : null;
   return {
     sourceId:source.id, sourceKind:source.kind, sourceName:source.name,
     originalUrl, canonicalUrl:originalUrl, title:String(snippet.title).slice(0,400),
     summary:typeof snippet.description === 'string' ? snippet.description.slice(0,1500) : null,
     observedAt, publishedAt:typeof snippet.publishedAt === 'string' ? snippet.publishedAt : null,
-    provenance:{...provenance(source,'youtube_data_api','Only public fields returned by the official YouTube Data API are stored; no page scraping or transcript extraction.'),discoveryMode:mode},
-    popularitySignals:{observation:mode,query, ...(stats?.viewCount ? {viewCount:String(stats.viewCount)} : {}), ...(stats?.likeCount ? {likeCount:String(stats.likeCount)} : {}), ...(stats?.commentCount ? {commentCount:String(stats.commentCount)} : {})}
+    provenance:{...provenance(source,'youtube_data_api','Only public fields returned by the official YouTube Data API are stored; no page scraping or transcript extraction.'),discoveryMode:mode,apiProvider:'YouTube Data API v3',videoId:id,publisherName:channelTitle,publisherId:channelId,channelTitle,channelId},
+    popularitySignals:{observation:mode,query,capturedAt:observedAt,videoId:id, ...(stats?.viewCount ? {viewCount:String(stats.viewCount)} : {}), ...(stats?.likeCount ? {likeCount:String(stats.likeCount)} : {}), ...(stats?.commentCount ? {commentCount:String(stats.commentCount)} : {})}
   };
 }
 

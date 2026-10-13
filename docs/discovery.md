@@ -1,4 +1,4 @@
-# M0.3C.1.1 — Editorial Discovery Inbox
+# M0.3C.2A — Editorial Discovery Inbox and Claim Radar
 
 Automated discovery runs in the existing one-shot worker after the RSS batch. It has a separate PostgreSQL advisory lock and failure boundary, so an unavailable discovery provider does not cancel RSS ingestion or manual Social Intake.
 
@@ -20,4 +20,4 @@ Apply all migrations with `pnpm db:migrate`. The existing `popestiri-rss-ingest.
 
 The admin page `/admin/discoveries` shows one expandable row per eligible multi-source topic and separate rows for ungrouped signals. The default order round-robins the stable source names while retaining recency within each source; `Cele mai recente` restores chronological order. Source filters remain available for RSS, Google Trends, YouTube API and Social Intake. TikTok and Facebook appear as disabled planned channels, not fake integrations. Each group is labelled provisional, exposes its independent accounts and source coverage, and reminds editors that multiple publications are not proof. With a channel or status filter, the count describes matching candidates while the expanded group may show additional members explicitly labelled as contextual coverage; pagination counts topic rows and remaining ungrouped matching signals, not duplicated members.
 
-Dashboard counts are actual candidates, eligible multi-source groups and registered discovery sources. Editorial interest and verification priority stay null until M0.3C.2. See [TikTok and Facebook feasibility](social-discovery-feasibility.md) for compliant automated paths and the limits of public-platform coverage.
+Dashboard counts are actual candidates, eligible multi-source groups and registered discovery sources. Claim leads have separate exact/paraphrased text, source references and timestamped public observations; editorial interest and verification priority remain null until an explicit editorial step. See [Claim Radar](claim-radar.md) and [TikTok and Facebook feasibility](social-discovery-feasibility.md) for compliant automated paths and the limits of public-platform coverage.

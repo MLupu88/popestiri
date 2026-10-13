@@ -2,6 +2,7 @@ import type pg from 'pg';
 import {createHash, randomUUID} from 'node:crypto';
 import {discoverGoogleTrends, discoverRSS, discoverYouTube, candidateId} from './adapters.ts';
 import type {DiscoveryCandidateInput, DiscoverySource, AdapterResult} from './types.ts';
+import {runClaimRadar} from '../claims/service.ts';
 
 const LOCK_KEY = 'popestiri:discovery-foundation';
 const stopWords = new Set('și sau din pentru cu este sunt cele mai care unui unei către despre după între fără prin acest această aceste aceea acelea după iar dar nu o un unei la de a în pe al ai ale se ce ca cum dintr'.split(' '));
@@ -176,6 +177,7 @@ export type DiscoveryRunSummary = {
   candidatesSeen: number;
   candidatesAdded: number;
   groupsUpdated: number;
+  claimRadar: {candidates:number; leads:number; failed:number; method:string};
   elapsedMs: number;
 };
 
@@ -184,7 +186,7 @@ export async function runDiscovery(pool: pg.Pool, options: {adapter?: (source: D
   const lock = await pool.connect();
   let locked = false;
   let runId: string | null = null;
-  const empty = (skipped: boolean): DiscoveryRunSummary => ({skipped,status:skipped?'skipped':'succeeded',adapters:[],candidatesSeen:0,candidatesAdded:0,groupsUpdated:0,elapsedMs:Math.round(performance.now()-started)});
+  const empty = (skipped: boolean): DiscoveryRunSummary => ({skipped,status:skipped?'skipped':'succeeded',adapters:[],candidatesSeen:0,candidatesAdded:0,groupsUpdated:0,claimRadar:{candidates:0,leads:0,failed:0,method:'not_run'},elapsedMs:Math.round(performance.now()-started)});
   try {
     locked = Boolean((await lock.query('SELECT pg_try_advisory_lock(hashtext($1)) AS acquired',[LOCK_KEY])).rows[0]?.acquired);
     if(!locked) return empty(true);
@@ -211,9 +213,14 @@ export async function runDiscovery(pool: pg.Pool, options: {adapter?: (source: D
       await logAdapter(pool,runId,{...result,status,failed},Math.round(performance.now()-adapterStarted));
     }
     const groupsUpdated = await groupRecentCandidates(pool);
-    const hasFailure = adapterResults.some(result => result.status === 'failed' || result.status === 'partial' || result.status === 'unavailable' || result.failed > 0);
+    let claimRadar: DiscoveryRunSummary['claimRadar'] = {candidates:0,leads:0,failed:0,method:'migration_pending'};
+    const claimRadarTables=(await pool.query("SELECT to_regclass('claim_leads') AS leads,to_regclass('claim_radar_candidate_state') AS state")).rows[0];
+    if(claimRadarTables?.leads && claimRadarTables?.state) {
+      try {claimRadar=await runClaimRadar(pool);} catch {claimRadar={...claimRadar,failed:1,method:'failed'};}
+    }
+    const hasFailure = adapterResults.some(result => result.status === 'failed' || result.status === 'partial' || result.status === 'unavailable' || result.failed > 0) || claimRadar.failed>0;
     const status = hasFailure ? ((candidatesAdded > 0 || adapterResults.some(result => result.status === 'succeeded')) ? 'partial' : 'failed') : 'succeeded';
-    const summary = {skipped:false,status,adapters:adapterResults,candidatesSeen,candidatesAdded,groupsUpdated,elapsedMs:Math.round(performance.now()-started)} as DiscoveryRunSummary;
+    const summary = {skipped:false,status,adapters:adapterResults,candidatesSeen,candidatesAdded,groupsUpdated,claimRadar,elapsedMs:Math.round(performance.now()-started)} as DiscoveryRunSummary;
     await pool.query(`UPDATE discovery_runs SET finished_at=now(),status=$2,adapter_results=$3,candidates_seen=$4,candidates_added=$5,groups_updated=$6 WHERE id=$1`,[runId,status,JSON.stringify(adapterResults),candidatesSeen,candidatesAdded,groupsUpdated]);
     await pool.query(`INSERT INTO audit_events(id,entity_type,entity_id,action,actor,reason,after_value) VALUES($1,'discovery_run',$2,'discovery_run_finished','worker','Automated discovery run completed.',$3)`,[randomUUID(),runId,JSON.stringify(summary)]);
     return summary;

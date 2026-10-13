@@ -35,6 +35,7 @@ Rotirea OPERATOR_TOKEN invalidează toate sesiunile existente; logout șterge co
 - `/admin/sources`: adăugare, activare/dezactivare și import manual RSS/Atom HTTPS.
 - `/admin/articles`: titlu, extras furnizat de flux, dată, sursă, link la fotografie dacă există; filtrare și paginare.
 - `/admin/social-intake`: linkuri publice Facebook, TikTok și YouTube trimise de operator; filtrare după platformă și stare, detalii, proveniență, completare manuală și schimbare de stare. Vezi [fluxul Social Intake](social-intake.md).
+- `/admin/claims`: **Afirmații în circulație**, cu text exact/parafrază, clasificare, referințe originale, publisher/channel, observații de reach și limitări. Nu afișează verdicturi și nu calculează viralitate.
 - `/admin/discoveries`: inbox cu grupuri multi-sursă provizorii expandabile și semnale individuale; ordinea implicită diversifică sursele, iar filtrul poate reveni la cele mai recente.
 - `/admin/integrations`: inventarul implementării, fără expunerea cheilor.
 - `/api/providers` păstrează autentificarea Bearer și răspunde 401 fără token.
@@ -64,7 +65,7 @@ Rezultatul nu schimbă starea editorială și nu aprobă drepturile fotografiilo
 
 ## Ce nu este încă implementat
 
-Scoruri editoriale și prioritatea de verificare rămân necompletate până la M0.3C.2. Verificarea cu DeepSeek/Tavily, selecția articolelor în ediție,
+Scorurile editoriale și prioritatea de verificare rămân necompletate până la o etapă editorială explicită. Extracția DeepSeek a claim leads este opțională și limitată per rulare; verificarea cu Tavily, selecția articolelor în ediție,
 aprobarea și prelucrarea imaginilor, generarea PDF A4, QR și agentul de print.
 Nici prezența unei chei în mediu, nici importul RSS nu înseamnă că aceste etape funcționează. TikTok și Facebook au doar documentația de fezabilitate; nu există scraping sau integrare activă.
 

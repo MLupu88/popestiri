@@ -3,6 +3,7 @@ import type pg from 'pg';
 import {feedURL} from '../../packages/connectors/rss.ts';
 import {importSource, saveFeedItems} from '../../packages/ingestion/rss.ts';
 import {mergeObservationEnvelope} from '../../packages/discovery/service.ts';
+import {listClaimLeads as listClaimLeadsRadar, setClaimLeadStatus as setClaimLeadStatusRadar} from '../../packages/claims/service.ts';
 export {importSource, saveFeedItems} from '../../packages/ingestion/rss.ts';
 
 export const socialPlatforms = ['facebook','tiktok','youtube'] as const;
@@ -128,7 +129,7 @@ export async function addSocialSubmission(pool: pg.Pool, input: {url: string; su
     const discoveryTable=(await client.query("SELECT to_regclass('discovery_candidates') AS name")).rows[0]?.name;
     if(discoveryTable) {
       const candidateId=`discovery-${createHash('sha256').update(parsed.canonicalUrl).digest('hex').slice(0,32)}`;
-      const observation={adapter:'manual_social_intake',registryId:'social-intake',sourceName:'Social Intake manual',submissionSource,limitation:'Operator-submitted supplementary signal; no automated social scraping or engagement metrics.'};
+      const observation={adapter:'manual_social_intake',registryId:'social-intake',sourceName:'Social Intake manual',platform:parsed.platform,submissionSource,limitation:'Operator-submitted supplementary signal; no automated social scraping or engagement metrics.'};
       const existing=(await client.query(`SELECT provenance FROM discovery_candidates WHERE canonical_url=$1 FOR UPDATE`,[parsed.canonicalUrl])).rows[0];
       if(existing) await client.query(`UPDATE discovery_candidates SET last_seen_at=now(),updated_at=now(),provenance=$2 WHERE canonical_url=$1`,[parsed.canonicalUrl,JSON.stringify(mergeObservationEnvelope(existing.provenance,observation))]);
       else await client.query(`INSERT INTO discovery_candidates(id,source_id,source_kind,source_name,original_url,canonical_url,title,summary,observed_at,provenance)
@@ -348,4 +349,17 @@ export async function setDiscoveryStatus(pool: pg.Pool, id: string, nextStatus: 
 
 export async function discoverySources(pool: pg.Pool) {
   return (await pool.query(`SELECT id,kind,name,endpoint_url,verification_url,viewpoint,region,enabled,verified_at FROM discovery_source_registry ORDER BY kind,name`)).rows;
+}
+
+export const claimLeadClassifications = ['testable_claim','ordinary_news_event','generic_broadcast','entertainment','uncertain'] as const;
+export const claimLeadStatuses = ['new','reviewing','investigating','closed','dismissed'] as const;
+
+export async function listClaimLeads(pool: pg.Pool, classification: string, statusValue: string, page = 1) {
+  if(classification && !claimLeadClassifications.includes(classification as typeof claimLeadClassifications[number])) throw new Error('Clasificarea afirmației nu este validă.');
+  if(statusValue && !claimLeadStatuses.includes(statusValue as typeof claimLeadStatuses[number])) throw new Error('Starea afirmației nu este validă.');
+  return listClaimLeadsRadar(pool,classification,statusValue,page);
+}
+
+export async function setClaimLeadStatus(pool: pg.Pool, id: string, statusValue: string) {
+  return setClaimLeadStatusRadar(pool,id,statusValue);
 }
