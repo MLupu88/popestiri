@@ -10,9 +10,9 @@ export const providerConfig = [
   {id:'rss',keys:[],status:'implemented_manual'},
   {id:'google-trends',keys:[],status:'implemented_automatic'},
   {id:'youtube',keys:['YOUTUBE_API_KEY'],status:'implemented_automatic_optional'},
-  {id:'tiktok',keys:['TIKTOK_PROVIDER','TIKTOK_API_KEY'],status:'provider_to_select'},
-  {id:'instagram',keys:['INSTAGRAM_PROVIDER'],status:'deferred'},
-  {id:'facebook',keys:['FACEBOOK_PROVIDER'],status:'access_to_evaluate'},
+  {id:'tiktok',keys:['TIKTOK_PROVIDER','TIKTOK_API_KEY'],status:'planned_access_required'},
+  {id:'instagram',keys:['INSTAGRAM_PROVIDER','INSTAGRAM_ACCESS_TOKEN'],status:'planned_access_required'},
+  {id:'facebook',keys:['FACEBOOK_PROVIDER','FACEBOOK_ACCESS_TOKEN'],status:'planned_access_required'},
   {id:'deepgram',keys:['DEEPGRAM_API_KEY'],status:'interface_only'},
   {id:'tavily',keys:['TAVILY_API_KEY'],status:'interface_only'},
   {id:'deepseek',keys:['DEEPSEEK_API_KEY','DEEPSEEK_FAST_MODEL','DEEPSEEK_REASONING_MODEL'],status:'interface_only'}

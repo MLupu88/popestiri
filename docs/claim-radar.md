@@ -37,6 +37,7 @@ diagnosticele de source-grounding. Nu rescrie `claim_leads`, proveniența, stare
 ```sh
 docker compose --env-file .env.production -f compose.production.yaml run --rm --no-deps api node apps/worker/claim-pilot.ts --preview --limit=20
 docker compose --env-file .env.production -f compose.production.yaml run --rm --no-deps api node apps/worker/claim-pilot.ts --dry-run --limit=20
+docker compose --env-file .env.production -f compose.production.yaml run --rm --no-deps api node apps/worker/claim-pilot.ts --dry-run --candidate-id=CANDIDATE_ID
 ```
 
 Ambele moduri folosesc extracția deterministică în configurația normală;
@@ -44,10 +45,20 @@ nu apelează servicii plătite și nu creează rânduri de pilot. `--apply` este
 păstra raportul și cache-ul pilotului, iar același fingerprint de conținut nu este re-extras.
 Starea existentă a radarului rămâne sursa pentru clasificarea „before”.
 
+Fără ID-uri, eșantionarea este reproductibilă și stratificată între RSS și YouTube, include
+candidate deja clasificate când există și folosește un seed stabil; cu `--candidate-id` sau
+`--candidate-ids=id1,id2` se păstrează exact selecția cerută, în limita a 20 de candidați.
+Raportul separă `apiAttempts`, `acceptedExtractions`, `rejectedResponses`, `cacheHits` și
+`deterministicFallbacks`. `sourceConsistent` înseamnă doar că URL-ul, ID-ul, câmpurile și
+fragmentele provin din candidatul original; `independentVerification` este `not_performed`,
+iar `truthfulness` rămâne `unassessed`.
+
 Un apel plătit ulterior necesită separat `--apply --paid`, `--max-calls=N` cu `1 <= N <= 20`,
 `SEMANTIC_CLAIM_PILOT_PAID=true` ca override separat, cheia/modelul DeepSeek și aprobarea editorială. Cheia se
 păstrează numai în `.env.production` cu permisiuni 0600; nu se pune în argumente, rapoarte sau
-loguri. În Compose, override-ul explicit poate fi transmis fără a tipări cheia:
+loguri. `--max-output-tokens=N` este opțional, dar limitat la 128–2000; raportul păstrează
+tokenii returnați de API când sunt disponibili și nu calculează costuri din estimări. În Compose,
+override-ul explicit poate fi transmis fără a tipări cheia:
 
 ```sh
 docker compose --env-file .env.production -f compose.production.yaml run --rm --no-deps -e SEMANTIC_CLAIM_PILOT_PAID=true api node apps/worker/claim-pilot.ts --apply --paid --limit=20 --max-calls=10
@@ -70,9 +81,9 @@ Adaptorul folosește în continuare numai YouTube Data API oficial: maximum dou�
 Următorul milestone trebuie să:
 
 1. construiască interogări din `claim_leads` testabile, sinonime aprobate și topicuri emergente, cu deduplicare, limită per rulare și jurnal al motivului/query-ului;
-2. execute aceste query-uri prin adaptoare aprobate pentru YouTube, TikTok și Facebook/public indexes, fiecare cu coverage, termeni, dată și limitări proprii;
+2. execute aceste query-uri prin adaptoare aprobate pentru YouTube, TikTok, Instagram și Facebook/public indexes, fiecare cu coverage, termeni, dată și limitări proprii;
 3. lege referințele noi de lead-uri existente numai când există evidence grounding și un matcher conservator; afirmațiile opuse rămân separate;
 4. colecteze doar metrici publice oferite legal de provider și să păstreze observațiile timestamped, fără scraping, login bypass, estimări sau paid calls activate implicit;
 5. adauge evaluări editoriale pentru false positives, recall/precision pe scenarii românești și controale de cost per provider.
 
-TikTok și Facebook nu sunt active în M0.3C.2A. Contractul este în `packages/discovery/social-adapters.ts`; până la un provider/API aprobat, singurele fallback-uri sunt Social Intake și referințe public indexate observate cu limitările lor.
+TikTok, Instagram și Facebook nu sunt active în M0.3C.2A. Contractele de provider sunt în `packages/connectors/contracts.ts` și `packages/discovery/social-adapters.ts`; până la un provider/API aprobat, singurele fallback-uri sunt Social Intake și referințe public indexate observate cu limitările lor. Cererea TikTok Research API a fost depusă, dar nu este aprobată; datele academice rămân separate de pipeline-ul editorial fără autorizare explicită. Tavily este următoarea prioritate pentru retrieval de dovezi după validarea extracției.

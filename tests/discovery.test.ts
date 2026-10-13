@@ -8,6 +8,7 @@ import {conservativeGroupingKey, groupRecentCandidates, loadAutomatedSources, pe
 import type {DiscoveryCandidateInput, DiscoverySource, AdapterResult} from '../packages/discovery/types.ts';
 import {addSocialSubmission, listDiscoveries, setDiscoveryStatus, dashboard} from '../apps/web/store.ts';
 import {discoveriesView} from '../apps/web/views.ts';
+import {plannedSocialAdapters} from '../packages/discovery/social-adapters.ts';
 
 const migration = await readFile(new URL('../packages/db/migrations/0003_discovery.sql', import.meta.url), 'utf8');
 const endpointMigration = await readFile(new URL('../packages/db/migrations/0004_discovery_endpoint_validation.sql', import.meta.url), 'utf8');
@@ -46,9 +47,15 @@ test('production worker receives YouTube configuration through Compose without e
   assert.doesNotMatch(productionCompose,/YOUTUBE_API_KEY:\s+['"]?[A-Za-z0-9_-]{20,}/);
   assert.match(productionCompose,/DEEPSEEK_CLAIM_EXTRACTION_ENABLED: "\$\{DEEPSEEK_CLAIM_EXTRACTION_ENABLED:-false\}"/);
   assert.match(productionCompose,/DEEPSEEK_CLAIM_MAX_CALLS_PER_RUN: "\$\{DEEPSEEK_CLAIM_MAX_CALLS_PER_RUN:-0\}"/);
+  assert.match(productionCompose,/DEEPSEEK_CLAIM_MAX_OUTPUT_TOKENS: "\$\{DEEPSEEK_CLAIM_MAX_OUTPUT_TOKENS:-1200\}"/);
   assert.match(productionCompose,/DEEPSEEK_API_KEY: "\$\{DEEPSEEK_API_KEY:-\}"/);
   assert.match(productionCompose,/DEEPSEEK_FAST_MODEL: "\$\{DEEPSEEK_FAST_MODEL:-\}"/);
   assert.doesNotMatch(productionCompose,/DEEPSEEK_API_KEY:\s+['"]?[A-Za-z0-9_-]{20,}/);
+});
+
+test('social discovery contract keeps TikTok, Instagram and Facebook planned without enabling unsupported access', () => {
+  assert.deepEqual(plannedSocialAdapters.map(item=>item.platform),['tiktok','instagram','facebook']);
+  assert.ok(plannedSocialAdapters.every(item=>item.status==='contract_only'));
 });
 
 test('manual Social Intake registry rows are never passed to automated adapters', async () => {

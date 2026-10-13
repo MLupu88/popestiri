@@ -55,7 +55,7 @@ Nginx Proxy Manager trimite domeniul către popestiri-api:3100.
 `pnpm demo` produce output/edition.fixture.json. Este blocat intenționat:
 fixture-ul nu are fotografie reală aprobată. Nu apelează servicii și nu imprimă.
 
-TikTok și Facebook nu sunt încă activate automat. Căile conforme, eligibilitatea Research API/Meta și o recomandare provider-first sunt documentate în [fezabilitatea social discovery](docs/social-discovery-feasibility.md). Social Intake rămâne fallback manual opțional.
+TikTok, Instagram și Facebook nu sunt încă activate automat. Căile conforme, eligibilitatea Research API/Meta și o recomandare provider-first sunt documentate în [fezabilitatea social discovery](docs/social-discovery-feasibility.md). Social Intake rămâne fallback manual opțional, iar Tavily este următoarea prioritate pentru retrieval de dovezi după validarea pilotului semantic.
 
 ## Ce urmează
 
