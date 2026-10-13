@@ -1,7 +1,7 @@
 import type pg from 'pg';
 import {createHash, randomUUID} from 'node:crypto';
-import {configuredSemanticClaimExtractor, deterministicSemanticExtract} from './extractor.ts';
-import {semanticClaimExtractionSchema, type ClaimExtractionInput, type SemanticClaimExtraction, type SemanticClaimExtractionProvider} from './types.ts';
+import {configuredSemanticClaimExtractor, deterministicSemanticExtract, validateSemanticExtraction} from './extractor.ts';
+import {type ClaimExtractionInput, type SemanticClaimExtraction, type SemanticClaimExtractionProvider, type SemanticExtractionUsage} from './types.ts';
 
 export type SemanticPilotMode = 'preview'|'dry_run'|'apply';
 
@@ -11,7 +11,18 @@ export type SemanticPilotOptions = {
   candidateIds?: string[];
   paid?: boolean;
   maxCalls?: number;
+  maxOutputTokens?: number;
   provider?: SemanticClaimExtractionProvider;
+};
+
+export type SemanticGroundingDiagnostics = {
+  sourceConsistent: boolean;
+  evidenceCount: number;
+  evidenceFields: string[];
+  quotedAssertions: number;
+  independentVerification: 'not_performed';
+  truthfulness: 'unassessed';
+  fallback?: string;
 };
 
 export type SemanticPilotResult = {
@@ -20,17 +31,14 @@ export type SemanticPilotResult = {
   beforeClassifications: string[];
   afterClassification: string;
   assertionCount: number;
-  sourceGrounding: {
-    valid: boolean;
-    evidenceCount: number;
-    evidenceFields: string[];
-    quotedAssertions: number;
-    truthfulness: 'unassessed';
-    fallback?: string;
-  };
+  sourceGrounding: SemanticGroundingDiagnostics;
   extraction: SemanticClaimExtraction;
   cacheHit: boolean;
-  paidCall: boolean;
+  apiAttempted: boolean;
+  acceptedExtraction: boolean;
+  rejectedResponse: boolean;
+  deterministicFallback: boolean;
+  usage: SemanticExtractionUsage|null;
 };
 
 export type SemanticPilotReport = {
@@ -45,14 +53,19 @@ export type SemanticPilotReport = {
     beforeClassifications: Record<string,number>;
     afterClassifications: Record<string,number>;
     assertions: number;
+    apiAttempts: number;
+    acceptedExtractions: number;
+    rejectedResponses: number;
     cacheHits: number;
-    paidCalls: number;
+    deterministicFallbacks: number;
+    usage: SemanticExtractionUsage;
   };
 };
 
 type PilotCandidate = {
   id: string;
   source_kind: string;
+  source_bucket: string;
   source_name: string;
   source_id: string;
   original_url: string;
@@ -60,8 +73,11 @@ type PilotCandidate = {
   summary: string|null;
   provenance: unknown;
   existing_classifications: unknown;
+  has_existing_classification: boolean;
   state_content_fingerprint: string|null;
   state_extraction_method: string|null;
+  state_extraction_model: string|null;
+  state_extraction_version: string|null;
   state_extraction: unknown;
 };
 
@@ -76,6 +92,8 @@ const stableJSON=(value:unknown):string => {
   if(Array.isArray(value)) return `[${value.map(stableJSON).join(',')}]`;
   return `{${Object.keys(value as object).sort().map(key=>`${JSON.stringify(key)}:${stableJSON((value as Record<string,unknown>)[key])}`).join(',')}}`;
 };
+const SAMPLE_SEED='semantic-claim-pilot-v2';
+const stableRank=(candidateId:string) => createHash('sha256').update(`${SAMPLE_SEED}:${candidateId}`).digest('hex');
 const candidateFingerprint=(candidate:PilotCandidate) => createHash('sha256').update(stableJSON({originalUrl:candidate.original_url,title:candidate.title,summary:candidate.summary,sourceKind:candidate.source_kind,sourceId:candidate.source_id})).digest('hex');
 
 function platform(candidate:PilotCandidate) {
@@ -97,9 +115,17 @@ function beforeClassifications(value:unknown) {
   return [...new Set(value.filter(item=>typeof item==='string').sort())];
 }
 
-function diagnostics(extraction:SemanticClaimExtraction, fallback?:string) {
+function diagnostics(extraction:SemanticClaimExtraction, fallback?:string):SemanticGroundingDiagnostics {
   const evidence=[...extraction.evidence,...extraction.assertions.flatMap(item=>item.evidence)];
-  return {valid:!fallback,evidenceCount:evidence.length,evidenceFields:[...new Set(evidence.map(item=>item.field))].sort(),quotedAssertions:extraction.assertions.filter(item=>item.verbatimQuote!==null).length,truthfulness:extraction.truthfulness as 'unassessed',...(fallback ? {fallback} : {})};
+  return {
+    sourceConsistent:true,
+    evidenceCount:evidence.length,
+    evidenceFields:[...new Set(evidence.map(item=>item.field))].sort(),
+    quotedAssertions:extraction.assertions.filter(item=>item.verbatimQuote!==null).length,
+    independentVerification:'not_performed',
+    truthfulness:extraction.truthfulness,
+    ...(fallback ? {fallback} : {})
+  };
 }
 
 function validateLimit(value:unknown, fallback:number, maximum:number, name:string) {
@@ -108,22 +134,67 @@ function validateLimit(value:unknown, fallback:number, maximum:number, name:stri
   return value;
 }
 
+function sortStable(rows:PilotCandidate[]) {return [...rows].sort((left,right)=>stableRank(left.id).localeCompare(stableRank(right.id)) || left.id.localeCompare(right.id));}
+
+function chooseSample(rows:PilotCandidate[], limit:number) {
+  const groups=new Map<string,PilotCandidate[]>();
+  for(const row of sortStable(rows)) {
+    const list=groups.get(row.source_bucket) ?? [];
+    list.push(row);groups.set(row.source_bucket,list);
+  }
+  const priority=['rss','youtube','other'];
+  const available=priority.filter(bucket=>(groups.get(bucket)?.length ?? 0)>0).concat([...groups.keys()].filter(bucket=>!priority.includes(bucket)));
+  const selected:PilotCandidate[]=[];
+  const take=(bucket:string,count:number) => {
+    const list=groups.get(bucket) ?? [];
+    const classified=list.find(row=>row.has_existing_classification);
+    if(count>0 && classified) {selected.push(classified);}
+    for(const row of list) if(selected.length<limit && selected.filter(item=>item.source_bucket===bucket).length<count && !selected.includes(row)) selected.push(row);
+  };
+  if(available.length>=2 && limit>=2) {
+    const sourceBuckets=available.slice(0,2);
+    take(sourceBuckets[0],Math.ceil(limit/2));
+    take(sourceBuckets[1],Math.floor(limit/2));
+  } else if(available.length) take(available[0],limit);
+  for(const row of sortStable(rows)) if(selected.length<limit && !selected.includes(row)) selected.push(row);
+  return selected.slice(0,limit);
+}
+
 async function candidates(pool:pg.Pool, options:SemanticPilotOptions, limit:number) {
   const ids=options.candidateIds ?? [];
   if(ids.length>20) throw new Error('The semantic pilot accepts at most 20 candidate IDs.');
+  if(ids.some(id=>typeof id!=='string' || !id.trim() || id.length>200)) throw new Error('Candidate IDs must be non-empty strings of at most 200 characters.');
   const where=ids.length ? 'WHERE c.id=ANY($1::text[])' : '';
   const args=ids.length ? [ids,limit] : [limit];
-  return (await pool.query(`SELECT c.id,c.source_kind,c.source_name,c.source_id,c.original_url,c.title,c.summary,c.provenance,
-      COALESCE(jsonb_agg(DISTINCT l.classification) FILTER (WHERE l.classification IS NOT NULL),'[]'::jsonb) AS existing_classifications,
-      s.content_fingerprint AS state_content_fingerprint,s.extraction_method AS state_extraction_method,s.extraction AS state_extraction
+  const order=ids.length ? 'array_position($1::text[],id)' : 'md5(id || \'semantic-claim-pilot-v2\')';
+  const rows=(await pool.query(`WITH base AS (
+      SELECT c.id,c.source_kind,c.source_name,c.source_id,c.original_url,c.title,c.summary,c.provenance,
+        CASE WHEN c.source_kind='rss' THEN 'rss' WHEN c.source_kind='youtube_api' THEN 'youtube' ELSE 'other' END AS source_bucket,
+        COALESCE(jsonb_agg(DISTINCT l.classification) FILTER (WHERE l.classification IS NOT NULL),'[]'::jsonb) AS existing_classifications,
+        BOOL_OR(l.id IS NOT NULL) AS has_existing_classification,
+        s.content_fingerprint AS state_content_fingerprint,s.extraction_method AS state_extraction_method,s.extraction_model AS state_extraction_model,
+        s.extraction_version AS state_extraction_version,s.extraction AS state_extraction
       FROM discovery_candidates c
       LEFT JOIN claim_lead_references r ON r.candidate_id=c.id
       LEFT JOIN claim_leads l ON l.id=r.claim_lead_id
       LEFT JOIN semantic_claim_pilot_state s ON s.candidate_id=c.id
       ${where}
-      GROUP BY c.id,s.content_fingerprint,s.extraction_method,s.extraction
-      ORDER BY c.updated_at DESC,c.id
-      LIMIT ${ids.length ? '$2' : '$1'}`,args)).rows as PilotCandidate[];
+      GROUP BY c.id,s.content_fingerprint,s.extraction_method,s.extraction_model,s.extraction_version,s.extraction
+    ), ranked AS (
+      SELECT base.*,row_number() OVER (PARTITION BY source_bucket ORDER BY md5(id || 'semantic-claim-pilot-v2')) AS bucket_rank
+      FROM base
+    )
+    SELECT * FROM ranked WHERE ${ids.length ? 'true' : 'bucket_rank <= $1'} ORDER BY ${order} LIMIT ${ids.length ? '$2' : 'GREATEST($1,1)'}`,args)).rows as PilotCandidate[];
+  return ids.length ? rows : chooseSample(rows,limit);
+}
+
+function compatibleCache(candidate:PilotCandidate, provider:SemanticClaimExtractionProvider, fingerprint:string) {
+  return candidate.state_content_fingerprint===fingerprint && candidate.state_extraction_method===provider.method && candidate.state_extraction_version===provider.extractionVersion && candidate.state_extraction_model===(provider.extractionModel ?? null) && candidate.state_extraction!==null;
+}
+
+function usageTotal(left:SemanticExtractionUsage,right:SemanticExtractionUsage):SemanticExtractionUsage {
+  const add=(a:number|null,b:number|null) => a===null || b===null ? null : a+b;
+  return {promptTokens:add(left.promptTokens,right.promptTokens),completionTokens:add(left.completionTokens,right.completionTokens),totalTokens:add(left.totalTokens,right.totalTokens)};
 }
 
 export async function runSemanticClaimPilot(pool:pg.Pool, options:SemanticPilotOptions = {}):Promise<SemanticPilotReport> {
@@ -131,48 +202,76 @@ export async function runSemanticClaimPilot(pool:pg.Pool, options:SemanticPilotO
   const sampleLimit=options.sampleLimit===undefined ? 20 : validateLimit(options.sampleLimit,20,20,'sampleLimit');
   if(sampleLimit<1) throw new Error('sampleLimit must be an integer between 1 and 20.');
   const maxCalls=validateLimit(options.maxCalls,0,20,'maxCalls');
+  if(options.maxOutputTokens!==undefined && (typeof options.maxOutputTokens!=='number' || !Number.isSafeInteger(options.maxOutputTokens) || options.maxOutputTokens<128 || options.maxOutputTokens>2000)) throw new Error('maxOutputTokens must be an integer between 128 and 2000.');
   if(options.paid && mode!=='apply') throw new Error('Paid semantic extraction requires apply mode.');
-  if(options.paid && !options.provider && process.env.SEMANTIC_CLAIM_PILOT_PAID!=='true') throw new Error('Set SEMANTIC_CLAIM_PILOT_PAID=true for paid semantic extraction.');
+  if(options.paid && process.env.SEMANTIC_CLAIM_PILOT_PAID!=='true') throw new Error('Set SEMANTIC_CLAIM_PILOT_PAID=true for paid semantic extraction.');
+  if(options.paid && (!process.env.DEEPSEEK_API_KEY || !process.env.DEEPSEEK_FAST_MODEL)) throw new Error('Paid semantic extraction requires DeepSeek credentials and model configuration.');
   if(options.paid && maxCalls===0) throw new Error('Paid semantic extraction requires a positive maxCalls budget.');
   const runId=mode==='apply' ? randomUUID() : null;
   if(runId) await pool.query(`INSERT INTO semantic_claim_pilot_runs(id,mode,sample_limit,paid_enabled,max_calls,status) VALUES($1,$2,$3,$4,$5,'running')`,[runId,mode,sampleLimit,Boolean(options.paid),maxCalls]);
   try {
     const rows=await candidates(pool,options,sampleLimit);
-    const provider=options.provider ?? configuredSemanticClaimExtractor({allowPaid:options.paid,maxCalls});
+    const provider=options.provider ?? configuredSemanticClaimExtractor({allowPaid:options.paid,maxCalls,maxOutputTokens:options.maxOutputTokens});
+    if(options.paid && provider.method!=='deepseek') throw new Error('Paid semantic extraction failed closed: DeepSeek provider is unavailable.');
     const results:SemanticPilotResult[]=[];
-    let paidAttempts=0;
+    let apiAttempts=0,acceptedExtractions=0,rejectedResponses=0,deterministicFallbacks=0,paidCalls=0;
+    let usage:SemanticExtractionUsage={promptTokens:0,completionTokens:0,totalTokens:0};
     for(const candidate of rows) {
       const fingerprint=candidateFingerprint(candidate);
       let extraction:SemanticClaimExtraction|undefined;
       let cacheHit=false;
-      const cacheAllowed=!options.paid || candidate.state_extraction_method==='deepseek';
-      if(cacheAllowed && candidate.state_content_fingerprint===fingerprint && candidate.state_extraction) {
-        try {extraction=semanticClaimExtractionSchema.parse(candidate.state_extraction);cacheHit=true;} catch {extraction=undefined;}
+      if(compatibleCache(candidate,provider,fingerprint)) {
+        try {extraction=validateSemanticExtraction(candidate.state_extraction,input(candidate));cacheHit=true;acceptedExtractions++;} catch {extraction=undefined;}
       }
       let fallback:string|undefined;
-      let paidCall=false;
+      let apiAttempted=false,rejectedResponse=false,deterministicFallback=false;
+      let extractionUsage:SemanticExtractionUsage|null=null;
       if(!extraction) {
-        paidCall=options.paid===true && provider.method==='deepseek' && paidAttempts<maxCalls;
-        if(paidCall) paidAttempts++;
-        try {extraction=await provider.extractSemantic(input(candidate));}
-        catch {fallback='provider_rejected_or_unavailable';extraction=deterministicSemanticExtract(input(candidate));}
-        if(!fallback && options.paid && provider.method==='deepseek' && extraction.extractionMethod==='deterministic_v1') fallback=paidCall ? 'provider_rejected_or_unavailable' : 'paid_budget_exhausted';
+        const budgetExhausted=options.paid===true && provider.method==='deepseek' && paidCalls>=maxCalls;
+        apiAttempted=provider.method==='deepseek' && !budgetExhausted;
+        if(apiAttempted) {apiAttempts++;paidCalls++;}
+        if(budgetExhausted) {
+          fallback='paid_budget_exhausted';deterministicFallback=true;deterministicFallbacks++;
+          extraction=deterministicSemanticExtract(input(candidate));
+        } else {
+          try {
+            const candidateExtraction=await provider.extractSemantic(input(candidate));
+            extractionUsage=provider.lastUsage ?? null;
+            extraction=validateSemanticExtraction(candidateExtraction,input(candidate));
+            acceptedExtractions++;
+          } catch {
+            extractionUsage=provider.lastUsage ?? null;
+            rejectedResponse=apiAttempted;
+            if(rejectedResponse) rejectedResponses++;
+            deterministicFallback=true;deterministicFallbacks++;
+            fallback=apiAttempted ? 'provider_rejected_or_unavailable' : 'deterministic_provider_error';
+            extraction=deterministicSemanticExtract(input(candidate));
+          }
+        }
+        extraction=validateSemanticExtraction(extraction,input(candidate));
       }
-      results.push({candidateId:candidate.id,sourceKind:candidate.source_kind,beforeClassifications:beforeClassifications(candidate.existing_classifications),afterClassification:extraction.classification,assertionCount:extraction.assertions.length,sourceGrounding:diagnostics(extraction,fallback),extraction,cacheHit,paidCall});
+      usage=usageTotal(usage,extractionUsage ?? {promptTokens:0,completionTokens:0,totalTokens:0});
+      results.push({candidateId:candidate.id,sourceKind:candidate.source_kind,beforeClassifications:beforeClassifications(candidate.existing_classifications),afterClassification:extraction.classification,assertionCount:extraction.assertions.length,sourceGrounding:diagnostics(extraction,fallback),extraction,cacheHit,apiAttempted,acceptedExtraction:cacheHit || !deterministicFallback, rejectedResponse, deterministicFallback,usage:extractionUsage});
     }
+    const before:Record<string,number>={},after:Record<string,number>={};
+    for(const result of results) {for(const item of result.beforeClassifications) before[item]=(before[item]??0)+1;after[result.afterClassification]=(after[result.afterClassification]??0)+1;}
+    if(apiAttempts===0) usage={promptTokens:null,completionTokens:null,totalTokens:null};
+    const report:SemanticPilotReport={runId,mode,sampleLimit,paidEnabled:Boolean(options.paid),maxCalls,candidates:results,summary:{candidateCount:results.length,beforeClassifications:before,afterClassifications:after,assertions:results.reduce((total,item)=>total+item.assertionCount,0),apiAttempts,acceptedExtractions,rejectedResponses,cacheHits:results.filter(item=>item.cacheHit).length,deterministicFallbacks,usage}};
     if(runId) {
       const client=await pool.connect();
       try {
         await client.query('BEGIN');
         for(const [index,result] of results.entries()) {
           const candidate=rows[index], fingerprint=candidateFingerprint(candidate);
-          await client.query(`INSERT INTO semantic_claim_pilot_state(candidate_id,content_fingerprint,extraction,extraction_method,extraction_model,extraction_version,paid_call,grounding_diagnostics)
-            VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-            ON CONFLICT(candidate_id) DO UPDATE SET content_fingerprint=EXCLUDED.content_fingerprint,extraction=EXCLUDED.extraction,extraction_method=EXCLUDED.extraction_method,extraction_model=EXCLUDED.extraction_model,extraction_version=EXCLUDED.extraction_version,paid_call=EXCLUDED.paid_call,last_processed_at=now(),grounding_diagnostics=EXCLUDED.grounding_diagnostics`,[candidate.id,fingerprint,JSON.stringify(result.extraction),result.extraction.extractionMethod,result.extraction.extractionModel,result.extraction.extractionVersion,result.paidCall,JSON.stringify(result.sourceGrounding)]);
-          await client.query(`INSERT INTO semantic_claim_pilot_results(run_id,candidate_id,content_fingerprint,before_classifications,after_classification,assertion_count,extraction,grounding_diagnostics,cache_hit,paid_call)
-            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,[runId,candidate.id,fingerprint,JSON.stringify(result.beforeClassifications),result.afterClassification,result.assertionCount,JSON.stringify(result.extraction),JSON.stringify(result.sourceGrounding),result.cacheHit,result.paidCall]);
+          const preserveSuccessfulDeepSeek=candidate.state_content_fingerprint===fingerprint && candidate.state_extraction_method==='deepseek' && candidate.state_extraction!==null;
+          const preservePriorState=preserveSuccessfulDeepSeek && (result.deterministicFallback || provider.method==='deterministic_v1');
+          if(!preservePriorState) await client.query(`INSERT INTO semantic_claim_pilot_state(candidate_id,content_fingerprint,extraction,extraction_method,extraction_model,extraction_version,paid_call,grounding_diagnostics,usage)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            ON CONFLICT(candidate_id) DO UPDATE SET content_fingerprint=EXCLUDED.content_fingerprint,extraction=EXCLUDED.extraction,extraction_method=EXCLUDED.extraction_method,extraction_model=EXCLUDED.extraction_model,extraction_version=EXCLUDED.extraction_version,paid_call=EXCLUDED.paid_call,last_processed_at=now(),grounding_diagnostics=EXCLUDED.grounding_diagnostics,usage=EXCLUDED.usage`,[candidate.id,fingerprint,JSON.stringify(result.extraction),result.extraction.extractionMethod,result.extraction.extractionModel,result.extraction.extractionVersion,result.apiAttempted && options.paid===true,JSON.stringify(result.sourceGrounding),JSON.stringify(result.usage ?? {})]);
+          await client.query(`INSERT INTO semantic_claim_pilot_results(run_id,candidate_id,content_fingerprint,before_classifications,after_classification,assertion_count,extraction,grounding_diagnostics,cache_hit,paid_call,api_attempted,accepted_extraction,rejected_response,deterministic_fallback,usage)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,[runId,candidate.id,fingerprint,JSON.stringify(result.beforeClassifications),result.afterClassification,result.assertionCount,JSON.stringify(result.extraction),JSON.stringify(result.sourceGrounding),result.cacheHit,result.apiAttempted && options.paid===true,result.apiAttempted,result.acceptedExtraction,result.rejectedResponse,result.deterministicFallback,JSON.stringify(result.usage ?? {})]);
         }
-        await client.query(`UPDATE semantic_claim_pilot_runs SET candidate_count=$2,status='completed',completed_at=now() WHERE id=$1`,[runId,results.length]);
+        await client.query(`UPDATE semantic_claim_pilot_runs SET candidate_count=$2,api_attempts=$3,accepted_extractions=$4,rejected_responses=$5,cache_hits=$6,deterministic_fallbacks=$7,usage=$8,status='completed',completed_at=now() WHERE id=$1`,[runId,results.length,apiAttempts,acceptedExtractions,rejectedResponses,report.summary.cacheHits,deterministicFallbacks,JSON.stringify(usage)]);
         await client.query('COMMIT');
       } catch(error) {
         await client.query('ROLLBACK');
@@ -180,9 +279,7 @@ export async function runSemanticClaimPilot(pool:pg.Pool, options:SemanticPilotO
         throw error;
       } finally {client.release();}
     }
-    const before:Record<string,number>={},after:Record<string,number>={};
-    for(const result of results) {for(const item of result.beforeClassifications) before[item]=(before[item]??0)+1;after[result.afterClassification]=(after[result.afterClassification]??0)+1;}
-    return {runId,mode,sampleLimit,paidEnabled:Boolean(options.paid),maxCalls,candidates:results,summary:{candidateCount:results.length,beforeClassifications:before,afterClassifications:after,assertions:results.reduce((total,item)=>total+item.assertionCount,0),cacheHits:results.filter(item=>item.cacheHit).length,paidCalls:results.filter(item=>item.paidCall).length}};
+    return report;
   } catch(error) {
     if(runId) await pool.query(`UPDATE semantic_claim_pilot_runs SET status='failed',completed_at=now() WHERE id=$1`,[runId]).catch(()=>undefined);
     throw error;

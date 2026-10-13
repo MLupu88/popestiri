@@ -1,9 +1,9 @@
 /**
- * Contract for a future approved TikTok/Facebook/public-index provider.
+ * Contract for a future approved TikTok/Instagram/Facebook/public-index provider.
  * Implementations must declare coverage and provenance; this milestone does
  * not instantiate one or make paid provider calls.
  */
-export type PlannedSocialPlatform = 'tiktok' | 'facebook';
+export type PlannedSocialPlatform = 'tiktok' | 'instagram' | 'facebook';
 
 export type SocialCoverage = {
   provider: string;
@@ -39,5 +39,6 @@ export interface SocialDiscoveryAdapter {
 
 export const plannedSocialAdapters: ReadonlyArray<{platform: PlannedSocialPlatform; status: 'contract_only'; manualFallback: string}> = [
   {platform:'tiktok',status:'contract_only',manualFallback:'Social Intake sau referințe indexate public, fără scraping restricționat.'},
+  {platform:'instagram',status:'contract_only',manualFallback:'Social Intake sau provider/API aprobat pentru conturi eligibile, fără scraping al conturilor personale.'},
   {platform:'facebook',status:'contract_only',manualFallback:'Social Intake sau provider/API aprobat, fără scraping de profiluri sau grupuri.'}
 ];

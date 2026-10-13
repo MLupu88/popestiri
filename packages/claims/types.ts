@@ -62,13 +62,26 @@ export const semanticClaimExtractionSchema = z.object({
   limitations: z.string().min(1).max(2000),
   truthfulness: z.literal('unassessed'),
   evidence: z.array(claimEvidenceSchema).max(20)
+}).superRefine((value, context) => {
+  if(value.classification==='testable_claim' && !value.assertions.some(assertion=>assertion.testability==='testable')) {
+    context.addIssue({code:z.ZodIssueCode.custom,path:['assertions'],message:'testable_claim requires at least one objectively testable assertion.'});
+  }
 });
 
 export type SemanticClaimAssertion = z.infer<typeof semanticClaimAssertionSchema>;
 export type SemanticClaimExtraction = z.infer<typeof semanticClaimExtractionSchema>;
 
+export type SemanticExtractionUsage = {
+  promptTokens: number|null;
+  completionTokens: number|null;
+  totalTokens: number|null;
+};
+
 export interface SemanticClaimExtractionProvider {
   readonly method: 'deterministic_v1'|'deepseek';
+  readonly extractionVersion?: string;
+  readonly extractionModel?: string|null;
+  readonly lastUsage?: SemanticExtractionUsage|null;
   extractSemantic(input: ClaimExtractionInput): Promise<SemanticClaimExtraction>;
 }
 
