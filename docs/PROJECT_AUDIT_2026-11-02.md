@@ -56,3 +56,7 @@ Run GitHub Actions 41447796071 (2026-11-02) a rulat 68 teste, 65 passed, 3 faile
 HEAD Git/server, Docker image ID, /ready, migrații actuale, timer/service/logurile ultimelor 24 h, număr candidați/leaduri și distribuția pe surse, starea YouTube (boolean, nu cheia), starea pilotului și ID numeric din consola Hetzner dacă este util.
 
 **Decizii:** GitHub main = sursa de adevăr; schimbări funcționale → roadmap/status/changelog în același PR, verificare CI; server docs sincronizate prin checkout Git; status CODED/MERGED/DEPLOYED/LIVE VERIFIED separat.
+
+## Addendum — Live audit 2026-11-02
+
+După auditul static, operatorul a furnizat probe de producție: Git checkout la 878d81b, API la e181e33, healthy + /ready databaseChecked=true, RSS timer active. DB are 8.172 discovery candidates, ultimele 10 rulări succeeded, dar doar 250 claim leads vechi, niciun testable_claim. Nu știm încă dacă procesarea incrementală s-a blocat, există backlog sau alte probleme. Vezi [LIVE_AUDIT_2026-11-02.md](LIVE_AUDIT_2026-11-02.md) pentru tabelul surselor și diagnostic read-only. Google Trends are doar 1 candidat și necesită audit separat.
