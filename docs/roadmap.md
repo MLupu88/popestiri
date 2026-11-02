@@ -38,6 +38,15 @@ During the documentation PR, 3 discovery tests were found to have stale integrat
 
 ## 2. R0 — Baseline și pilot (P0; execută primul)
 
+### R0.2 diagnostic — semantic preview crashes on numeric grounding (2026-11-02 14:39 UTC)
+
+- Production operator executed zero-paid `node apps/worker/claim-pilot.ts --preview --limit=20` on release image `ae489a4`. Process **crashed before report** in `validateSemanticAssertion` (`packages/claims/extractor.ts:199`), error `DeepSeek semantic numeric assertion is not present in the candidate content`. This preview did **not** contain `--paid` or `--apply`; no paid calls authorized and no pilot report was generated.
+- Reproduction from static source: old `numberSignature` regex `/\\b\\d[\\d\\s.,]*\\b/g` admits whitespace between unrelated numeric tokens. SQL title+summary concatenation can consequently turn adjacent `12` and `2027` into nonexistent `122027`, producing a false numeric-grounding rejection. **Exact live candidate not identified yet**; treat this as a confirmed defect in parser logic, plausible explanation of crash rather than proven sole production input.
+- Proposed patch **CODED IN PR, CI/merge/deploy pending**: tokenize numeric segments independently (no inter-number whitespace concatenation); do not relax absent-number rejection. In the deterministic preview path, if grounding rejects an assertion, return a source-grounded `uncertain` extraction with zero assertions and explicit `deterministic_grounding_rejected` diagnostics, continue with the remaining sample. DeepSeek-sourced claims still require validation.
+- Added regression tests for number boundaries and rejected deterministic assertions; keep `--preview` read-only, paid zero. Once checks pass, merge and deploy controlled; rerun 20-sample before judging true claim recall or proposing new providers.
+- Parallel **PR #18** documents earlier Claim Radar queue recovery and may need merging/rebasing in sequence; do not conflate that queue fix with the separate semantic pilot crash.
+
+
 ### R0.1 — Release AE489A4: deployed, worker verification pending (2026-11-02)
 
 - PR #16 / CI trecut → merge `ae489a489139b92c90686fbf6f0b15d2ea926dc2`; operatorul a construit imaginea și a făcut deploy pe Hetzner. API healthy, DB healthy, `/ready` OK, timer RSS activ; fără migrări.
