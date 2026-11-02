@@ -26,7 +26,8 @@ export type SocialSourceCoverage = {
 export const MAX_SOCIAL_YOUTUBE_QUERIES = 2;
 const MAX_SEED_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
-const genericBroadcast = /\b(?:stirile|știrile|buletinul|jurnalul)\b.{0,65}\b(?:azi|astăzi|astazi|ora|octombrie|noiembrie|2026)\b/i;
+// JavaScript \\b is ASCII-centric: it fails for a leading 'Ș' in 'Știrile'.
+const genericBroadcast = /(?:^|[^\p{L}])(?:stirile|știrile|buletinul|jurnalul)(?=[^\p{L}]|$).{0,65}(?:^|[^\p{L}])(?:azi|astăzi|astazi|ora|octombrie|noiembrie|2026)(?=[^\p{L}\p{N}]|$)/iu;
 const entertainment = /\b(?:official video|official audio|lyrics|gaming|gameplay|concert|remix|trailer|prank)\b/i;
 const malicious = /ignore previous instructions|system prompt|\[tool_call\]|<script|javascript:/i;
 
