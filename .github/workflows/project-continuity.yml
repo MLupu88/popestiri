@@ -1,0 +1,38 @@
+name: Project docs continuity
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  continuity:
+    name: Project docs continuity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require roadmap, status and changelog with functional changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only "$BASE_SHA" HEAD > /tmp/popestiri-pr-files.txt
+          echo "Files in PR:"
+          cat /tmp/popestiri-pr-files.txt
+          # Documentation-only changes do not require all three files.
+          if ! grep -Ev '^(docs/|README\.md$|AGENTS\.md$|CLAUDE\.md$|\.github/PULL_REQUEST_TEMPLATE\.md$)' /tmp/popestiri-pr-files.txt | grep -q .; then
+            echo "Documentation-only PR: continuity guard not required."
+            exit 0
+          fi
+          for required in docs/roadmap.md docs/PROJECT_STATUS.md docs/CHANGELOG.md; do
+            if ! grep -Fxq "$required" /tmp/popestiri-pr-files.txt; then
+              echo "::error::Functional PR must update $required in the same PR."
+              exit 1
+            fi
+          done
+          echo "Functional PR includes roadmap, current status and changelog."
