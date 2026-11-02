@@ -1,5 +1,6 @@
 // P0-S1/S2: read-only, bounded planning for official YouTube discovery.
-// Social titles are untrusted search seeds, never verified claims or evidence.
+// A video title alone is never sufficient to seed claim-based search. Fail closed
+// until an actually extracted and grounded social claim exists.
 export type SocialSeedKind = 'youtube_claim' | 'youtube_video';
 export type SocialQuerySeed = {
   id: string;
@@ -14,7 +15,7 @@ export type PlannedSocialQuery = {
   seedId: string;
   seedKind: SocialSeedKind;
   observedAt: string;
-  selectionReason: 'existing_social_claim' | 'recent_public_video_title';
+  selectionReason: 'existing_social_claim';
 };
 
 export type SocialSourceCoverage = {
@@ -56,16 +57,15 @@ export function planSocialYouTubeQueries(
   if (!Number.isFinite(now.getTime())) throw new Error('now must be a valid date.');
   const eligible: Array<{ seed: SocialQuerySeed; query: string; time: number }> = [];
   for (const seed of seeds) {
-    if (!seed || (seed.kind !== 'youtube_claim' && seed.kind !== 'youtube_video') || !seed.id || typeof seed.text !== 'string') continue;
+    // Current database has many videos but few grounded claims. Do not turn
+    // popularity or a fresh headline into a fabricated claim or noisy query.
+    if (!seed || seed.kind !== 'youtube_claim' || !seed.id || typeof seed.text !== 'string') continue;
     const time = Date.parse(seed.observedAt);
     if (!Number.isFinite(time) || time > now.getTime() + FUTURE_SKEW_MS || now.getTime() - time > MAX_SEED_AGE_MS) continue;
     const query = safeQuery(seed.text);
     if (query) eligible.push({seed,query,time});
   }
-  eligible.sort((a,b)=>
-    (a.seed.kind === b.seed.kind ? 0 : a.seed.kind === 'youtube_claim' ? -1 : 1) ||
-    b.time - a.time || a.seed.id.localeCompare(b.seed.id)
-  );
+  eligible.sort((a,b)=>b.time - a.time || a.seed.id.localeCompare(b.seed.id));
   const used = new Set<string>();
   const result: PlannedSocialQuery[] = [];
   for (const item of eligible) {
@@ -76,7 +76,7 @@ export function planSocialYouTubeQueries(
     result.push({
       platform:'youtube',query:item.query,seedId:item.seed.id,seedKind:item.seed.kind,
       observedAt:new Date(item.time).toISOString(),
-      selectionReason:item.seed.kind === 'youtube_claim' ? 'existing_social_claim' : 'recent_public_video_title'
+      selectionReason:'existing_social_claim'
     });
   }
   return result;
