@@ -2,6 +2,13 @@
 
 **Regulă:** istoric append-only. Pentru orice schimbare funcțională, actualizează acest jurnal + [roadmap.md](roadmap.md) + [PROJECT_STATUS.md](PROJECT_STATUS.md) în același PR. Fiecare intrare conține data, milestone, motiv, PR/SHA, teste, deploy și follow-up; nimic nu se declară „deployed” fără dovadă.
 
+## 2026-11-02 — P0-S3 YouTube description claim extraction preview (feature PR; not deployed)
+
+- Operator's live read-only Social Discovery preview on built image `b3c6a`: `rawVideoTitleCount=120`, `groundedClaimSeedCount=0`, `queryCount=0`. Zero is the correct protection against title-based noise; it is **not** an operational viral discovery success.
+- CODED (CI/merge pending) zero-paid metadata-only YouTube description pilot: source and excerpt grounding, title-only suppression, untrusted-text gate, bounded scan/sample, read-only DB. Adds CLI and focused tests.
+- No transcriptions, media fetching, external provider requests, DB modifications, migrations or app deploy. A testable description statement is not automatically a video quote, viral item, or false statement.
+- Next: CI/PR merge, run isolated preview against existing production records, examine real metadata utility; continue licensed social access and true evidence verification.
+
 ## 2026-11-02 — Social Discovery preview succeeds but quality gate fails (corrective PR)
 
 - Production data read-only preview from built image `8f5709a`: 120 YouTube seeds, 2 queries chosen from irrelevant public video titles; YouTube ready-to-probe; TikTok/Facebook unavailable. No provider requests/writes occurred.
