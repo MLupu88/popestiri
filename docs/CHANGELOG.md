@@ -2,10 +2,19 @@
 
 **Regulă:** istoric append-only. Pentru orice schimbare funcțională, actualizează acest jurnal + [roadmap.md](roadmap.md) + [PROJECT_STATUS.md](PROJECT_STATUS.md) în același PR. Fiecare intrare conține data, milestone, motiv, PR/SHA, teste, deploy și follow-up; nimic nu se declară „deployed” fără dovadă.
 
+## 2026-11-02 — Live audit discovery + Claim Radar (PR de documentație în curs)
+- Operator Hetzner a verificat 2 Nov: checkout Git/docs 878d81b, container API e181e33 healthy, DB healthy, /ready databaseChecked true, timer RSS active; fără modificare runtime.
+- DB: 8.172 discovery candidates, 483 în 24h, 2.687 în 7 zile; 10 discovery runs succeeded; YouTube 1.069 candidați, Google Trends doar 1.
+- **BLOCAJ P0:** 250 claim leads, 0 în ultimele 7 zile și 0 testable_claim. Cauza neconfirmată; diagnosticul state/backlog/audit_events este următorul pas. Fixul necesită PR separat după confirmarea cauzei.
+- Documentul [LIVE_AUDIT_2026-11-02.md](LIVE_AUDIT_2026-11-02.md) păstrează dovezile, interogările și limitările. Nicio comandă cu scrieri DB sau API paid.
+
+## 2026-11-02 — PR #14 MERGED / docs sincronizate
+- CI test and Project docs continuity PASSED; merge SHA 878d81b, documente sincronizate pe Hetzner la 13:18 UTC, API image a rămas e181e33. Test discovery fixture timestamp fixat exclusiv în cod de test.
+
 ## 2026-11-02 — Corectare fixture de teste dependentă de dată (PR #14)
 - CI inițial #14: 65/68 teste passed, 3 failed în tests/discovery.test.ts deoarece fixture-ul `candidate()` folosea 2026-10-11, în afara ferestrei `now() - interval '7 days'` la 2026-11-02.
 - Modificat exclusiv fixture-ul `candidate()` să creeze date observate relativ la timpul rulării (24h în urmă), păstrând datele fixe doar în testele deliberate de distanțe temporale. NU se schimbă logica produsului și nu se fac migrări sau deploy.
-- Necesită confirmarea rerulării CI pe commitul corectat; nu afirma 68/68 înaintea rezultatului.
+- Rerularea CI finală a trecut, PR #14 integrat 2026-11-02.
 
 ## 2026-11-02 — Audit / proiect de continuitate (în PR, nu încă în main sau pe server)
 - Audit static GitHub la HEAD `e181e33`, raport de evidență separat de ceea ce a fost observat în producție la 2026-10-13.
