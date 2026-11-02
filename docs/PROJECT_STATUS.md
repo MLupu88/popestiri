@@ -2,6 +2,13 @@
 
 **Audit static:** 2026-11-02 | **Sursa oficială:** GitHub main | **Actualizări obligatorii:** [roadmap.md](roadmap.md) + acest fișier + [CHANGELOG.md](CHANGELOG.md) în fiecare PR funcțional.
 
+## NEXT P0 — P0-S3 observed 20-video preview + fix for rhetorical false positive (2026-11-02)
+
+- Last operator output from built image `984f1ec` (one-shot only, **NO deploy**): 240 videos scanned, 117 preflight-usable descriptions, 20 sampled, 1 candidate statement. That one was the hypothetical/rhetorical question attributed to Gigi Becali: `Dacă n-are 2-3 mii o rochie, ce bărbat e ăla?`. So **0 convincing factual claims** in this sample; the previous 1 was an editorial false positive. A Dune trailer description also passed text-length preflight. No YouTube quota, DeepSeek calls or database writes.
+- Fix **CODED / CI pending** in `packages/claims/youtube-description-preview.ts` + regression tests: description-specific exclusion of question marks, hypothetical/conditional and opinion-language, plus `low_signal_video_format` for generic broadcasts and entertainment. New count `nonFactualAssertionsSuppressed`; this is conservative but not a full semantic model.
+- **NEXT:** verify CI, merge only if green, then build updated image without recreating live API or restarting DB and rerun read-only `node apps/worker/youtube-description-preview.ts --limit=20`. Expect 0 or another small number of claims; inspect any remaining examples for primary evidence and eligibility.
+- Need a separate provider/rights feasibility evaluation for actual TikTok/YouTube/Facebook speech/transcripts, plus measured social propagation, before autonomous fact checking can be evaluated.
+
 ## NEXT P0 — YouTube description claims preview (2026-11-02)
 
 - Last live operator command: `b3c6a` one-shot read-only Social Discovery gave `seedCount=120`, `groundedClaimSeedCount=0`, `queryCount=0`, `no_grounded_youtube_claims`. Correct, but still no social statement content. Live API image last confirmed `ae489a4`; new images built/run in isolated `docker compose run`, NOT deployed as API.
