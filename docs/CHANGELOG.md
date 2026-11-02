@@ -2,6 +2,13 @@
 
 **Regulă:** istoric append-only. Pentru orice schimbare funcțională, actualizează acest jurnal + [roadmap.md](roadmap.md) + [PROJECT_STATUS.md](PROJECT_STATUS.md) în același PR. Fiecare intrare conține data, milestone, motiv, PR/SHA, teste, deploy și follow-up; nimic nu se declară „deployed” fără dovadă.
 
+## 2026-11-02 — P0-S1/S2 first social-first functional slice (feature PR)
+
+- Implementation branch creates `social-query-planner.ts` plus read-only CLI `social-discovery-preview.ts`, new `pnpm social:preview` and tests. Limits: up to two official YouTube search hints chosen from recent YouTube material only; reasons/provenance included; no RSS seed; no viral/falsity inference.
+- `--preview` makes only database SELECT and does not call any provider. `--probe-youtube` is separate explicit API/quota opt-in using existing official adapter and no DB write; not enabled in the hourly scheduler.
+- TikTok/Facebook `unavailable` (no licensed editorial access). No paid API calls, schema migrations, runtime release or public publishing. **CODED / PR and CI pending**; test cases added, outcome pending.
+- Next: CI + review, merge, controlled preview on Hetzner and measure whether query quality/coverage merits enabling targeted discovery. Product goal remains autonomous evidence-gated debunking, not manual per-story approval.
+
 ## 2026-11-02 — Owner changed product direction: SOCIAL-FIRST and autonomous evidence-gated publication (docs-only PR)
 - Prioritatea editorială devine TikTok, Facebook și YouTube, nu volumul RSS; presa rămâne instrument de context și identificare a surselor primare. Un trending topic nu este echivalent cu dezinformarea.
 - Se elimină aprobarea umană obligatorie pentru fiecare articol ca obiectiv de produs. Înlocuire planificată cu `auto_publish` numai când sunt îndeplinite gate-uri reproductibile de dovezi, drepturi și risc; `hold_for_exception` / `no_verdict` când cazul nu poate fi dovedit. Human spot-check în shadow testing pentru validarea sistemului, nu workflow zilnic obligatoriu.
