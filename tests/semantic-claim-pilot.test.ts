@@ -120,7 +120,7 @@ test('pilot preserves distinct numeric tokens across title and summary boundarie
   } finally {await db.close();}
 });
 
-test('preview rejects unsupported deterministic numbers per candidate rather than aborting sample',async()=>{
+test('preview replaces unsupported provider numbers with source-grounded deterministic fallback',async()=>{
   const db=new PGlite();
   try {
     const pool=await poolFor(db);
@@ -143,10 +143,10 @@ test('preview rejects unsupported deterministic numbers per candidate rather tha
     assert.equal(report.candidates.length,2);
     const rejected=report.candidates.find(item=>item.candidateId===first.candidateId)!;
     const accepted=report.candidates.find(item=>item.candidateId===second.candidateId)!;
-    assert.equal(rejected.afterClassification,'uncertain');
-    assert.equal(rejected.assertionCount,0);
+    assert.equal(rejected.afterClassification,'testable_claim');
+    assert.equal(rejected.assertionCount,1);
     assert.equal(rejected.extractionOrigin,'deterministic_fallback');
-    assert.equal(rejected.sourceGrounding.fallback,'deterministic_grounding_rejected');
+    assert.equal(rejected.sourceGrounding.fallback,'deterministic_provider_error');
     assert.equal(rejected.acceptedExtraction,false);
     assert.equal(accepted.afterClassification,'testable_claim');
     assert.equal(accepted.assertionCount,1);
