@@ -48,6 +48,33 @@ test('description preflight rejects URL-only, absent, prompt injection and non-Y
   assert.equal(report.cases.filter(item=>item.descriptionStatus==='untrusted_instructions').length,1);
 });
 
+test('real Becali rhetorical quote is not a factual claim even with numbers and attribution',()=>{
+  const source='Gigi Becali apără luxul liderilor PSD, în exclusivitate pentru B1 TV: „Dacă n-are 2-3 mii o rochie, ce bărbat e ăla?';
+  const report=previewYouTubeDescriptions([candidate('IUSxTikNkoE',source,'GIGI BECALI, despre OPULENȚA LIDERILOR PSD. Știri B1TV_2 nov. 2026')]);
+  assert.equal(report.selectedCount,1);
+  assert.equal(report.testableDescriptionAssertions,0);
+  assert.equal(report.cases[0].classification,'unassessed');
+  assert.equal(report.cases[0].descriptionStatus,'usable_description');
+  assert.equal(report.cases[0].nonFactualAssertionsSuppressed,1);
+  assert.equal(report.nonFactualAssertionsSuppressed,1);
+});
+
+test('a long entertainment trailer description does not become usable claim content',()=>{
+  const report=previewYouTubeDescriptions([candidate('uJqaGLmZpGo',substantive.repeat(2),'Dune: Part Three | Final Trailer')]);
+  assert.equal(report.selectedCount,1);
+  assert.equal(report.cases[0].descriptionStatus,'low_signal_video_format');
+  assert.equal(report.testableDescriptionAssertions,0);
+});
+
+test('declarative measured assertion remains eligible while conditional numeric statements abstain',()=>{
+  const measured=candidate('decl0123',substantive);
+  const hypothetical=candidate('hypo0123','Dacă autoritățile au alocat 12 milioane de lei pentru dotarea spitalelor, ar trebui să avem cifre noi pentru toate regiunile.');
+  const result=previewYouTubeDescriptions([measured,hypothetical]);
+  assert.equal(result.testableDescriptionAssertions,1);
+  assert.equal(result.cases.find(item=>item.candidateId==='decl0123')?.descriptionAssertions.length,1);
+  assert.equal(result.cases.find(item=>item.candidateId==='hypo0123')?.descriptionAssertions.length,0);
+});
+
 test('description audit uses stable sample, prioritizes substantive text and enforces limit',()=>{
   const rows=[candidate('empty01','Contact me'),candidate('usable01',substantive),candidate('usable02',substantive)];
   const report=previewYouTubeDescriptions(rows,{sampleLimit:2});
