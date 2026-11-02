@@ -275,8 +275,9 @@ export async function runSemanticClaimPilot(pool:pg.Pool, options:SemanticPilotO
           fallback='deterministic_grounding_rejected';
           // Preserve the source headline/evidence, but do not surface an
           // assertion whose numbers, polarity or attribution cannot be verified.
+          const safe=deterministicSemanticExtract(input(candidate));
           extraction=validateSemanticExtraction({
-            ...extraction,
+            ...safe,
             assertions:[],
             classification:'uncertain',
             truthfulness:'unassessed',
