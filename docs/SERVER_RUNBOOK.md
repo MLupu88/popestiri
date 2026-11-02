@@ -1,6 +1,6 @@
 # PopeȘtiri — HETZNER SERVER RUNBOOK
 
-**Ultima observare reală:** 2026-10-13, din logurile operatorului. **Nu s-a făcut conexiune la server în auditul 2026-11-02.**
+**Ultima observare prin logurile operatorului:** 2026-11-02 14:19 UTC. Operatorul a executat comenzile; asistentul nu are SSH direct. Release API curent: `ae489a489139b92c90686fbf6f0b15d2ea926dc2` healthy, `/ready` DB OK, RSS timer active. Functional verification Claim Radar PENDING. Backup PG `popestiri_20261102T140956Z.dump` 4,5 MB validat prin listare, restore test pending. **Nu confunda deploy cu validarea logicii.**
 
 ## Identificare
 
