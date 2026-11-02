@@ -15,7 +15,8 @@ const probe = argv[0] === '--probe-youtube';
 const pool = new pg.Pool({connectionString:process.env.DATABASE_URL,max:2,connectionTimeoutMillis:5000,statement_timeout:12000});
 
 try {
-  // Social sources only: no RSS headline is eligible to seed this query plan.
+  // Social sources only: no RSS headline OR unverified YouTube title
+  // is eligible to seed claim-based search.
   const claims = await pool.query(
     `SELECT l.id, l.assertion_text AS text, l.last_observed_at AS observed_at
      FROM claim_leads l
@@ -45,9 +46,11 @@ try {
   const coverage = socialSourceCoverage({youtubeSourceEnabled:Boolean(source),youtubeKeyConfigured:Boolean(process.env.YOUTUBE_API_KEY)});
   console.log(JSON.stringify({
     event:'social_discovery_plan',mode:probe?'explicit_api_probe':'read_only_preview',
-    seedCount:seeds.length,queryCount:queries.length,maximumSearchQueries:2,
+    seedCount:seeds.length,groundedClaimSeedCount:claims.rows.length,rawVideoTitleCount:videos.rows.length,
+    queryCount:queries.length,maximumSearchQueries:2,
+    ...(queries.length===0 ? {blocker:'no_grounded_youtube_claims'} : {}),
     queries,coverage,
-    limitation:'Public video titles are search hints, not fact-checked claims or proof of virality. TikTok/Facebook editorial connectors are unavailable.'
+    limitation:'Unverified social video titles are excluded from claim search; zero grounded claims means zero queries. This is not evidence of zero misinformation. TikTok/Facebook editorial connectors remain unavailable.'
   }));
   if (probe) {
     if (!source || !process.env.YOUTUBE_API_KEY || queries.length===0) {

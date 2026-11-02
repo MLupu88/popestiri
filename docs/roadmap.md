@@ -38,6 +38,14 @@ PopeȘtiri nu este un agregator de știri sau un produs de community submissions
 
 During the documentation PR, 3 discovery tests were found to have stale integration fixture timestamps fixed at 2026-10-11; the product's rolling seven-day grouping correctly excludes them in November. Integration test fixture now uses observedAt relative to the run date. Production grouping logic was not changed. CI rerun PASSED, PR #14 MERGED.
 
+### P0-S2 QUALITY GATE — live preview regression (2026-11-02, code in PR; CI PENDING)
+
+- Read-only Hetzner preview on image `8f5709a` PASSED technically: 120 recent YouTube-video seeds, 2 queries, but **both were irrelevant title-only hints**, not grounded fact-checkable claims: "O româncă din Buzău a folosit zeci de ani o piatră pe post de opritor de uşă" and "SPECIAL B1 Becali nu i vrea pe apărătorii săracilor în zdrențe". YouTube `ready_to_probe`; TikTok/Facebook `unavailable`; no external API requests or DB writes.
+- **Product failure:** query planner selected fresh video titles even without validated YouTube claims. We must not turn headlines into claims or spend search quota on noise.
+- Remediation **CODED, PR/CI/merge/deploy pending**: `planSocialYouTubeQueries` accepts only `youtube_claim` signals previously extracted and grounded, not `youtube_video` titles; preview shows counts of recent titles vs candidate claims and `blocker=no_grounded_youtube_claims` with **0 queries** if no eligible claims. Explicit `--probe-youtube` remains bounded; with no eligible claims it refuses the API search.
+- Next engine work: obtain authorized social content beyond titles, produce grounded atomic claims and engagement observations, and only then generate targeted searches. 0 queries is an honest diagnostic, **not** proof no misinformation exists. No auto-publish, no TikTok/Meta ingest, no paid calls.
+- Tests cover both real noisy title strings plus claim-only selection. Merge only after green CI; live preview new image before deploying.
+
 ### P0-S1/S2 — Read-only social discovery planner (CODED, PR/CI pending; 2026-11-02)
 
 - New `packages/discovery/social-query-planner.ts`: deterministic bounded query planner **only from recent YouTube claim leads / public YouTube titles**, no RSS seeds, max 2 queries, reject generic bulletins, entertainment, prompt injection, old/future records; query reason and original candidate/lead ID preserved. These queries are discovery hints, **not fact-checked claims or proof of virality**.

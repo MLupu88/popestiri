@@ -2,6 +2,13 @@
 
 **Audit static:** 2026-11-02 | **Sursa oficială:** GitHub main | **Actualizări obligatorii:** [roadmap.md](roadmap.md) + acest fișier + [CHANGELOG.md](CHANGELOG.md) în fiecare PR funcțional.
 
+## LIVE QUALITY FINDING — P0-S2 YouTube title selection (2026-11-02)
+
+- Operator ran **read-only social preview** with image `8f5709a`, `seedCount=120`, `queryCount=2`; selected an old-stone-in-Buzău human-interest title and a Becali TV headline. These are **unverified YouTube titles, not extracted checkable claims**. This confirms the code path runs, but the result is editorially poor.
+- Current deployed API last verified `ae489a4`. `8f5709a` was built and tested as isolated one-shot image only; not deployed. YouTube provider marked `ready_to_probe`, TikTok/Facebook `unavailable`. No API probe, no DB writes.
+- **CODED, CI PENDING:** repair planner so only `youtube_claim` grounded existing assertions generate searches; raw titles reported separately, `no_grounded_youtube_claims` yields 0 rather than invented relevance or wasted quota. 0 queries is a blocker to next stage, not a successful viral-discovery milestone.
+- **Next:** CI of corrective PR, merge, test isolated read-only preview, then implement lawful social content text/extraction and coverage diagnostics; TikTok/Facebook access remains a separate licensing decision. Never promote metadata-based seed to unsupported fact-check.
+
 ## P0-S1/S2 — Social-first discovery planner (CODED; CI/merge/deploy pending, 2026-11-02)
 
 - **New code:** `packages/discovery/social-query-planner.ts` / `apps/worker/social-discovery-preview.ts`; command `pnpm social:preview`. It selects at most two deterministic YouTube search hints from public YouTube video titles and existing testable claims with YouTube references from the last 7 days, never from bulk RSS headlines.

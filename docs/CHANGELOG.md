@@ -2,6 +2,13 @@
 
 **Regulă:** istoric append-only. Pentru orice schimbare funcțională, actualizează acest jurnal + [roadmap.md](roadmap.md) + [PROJECT_STATUS.md](PROJECT_STATUS.md) în același PR. Fiecare intrare conține data, milestone, motiv, PR/SHA, teste, deploy și follow-up; nimic nu se declară „deployed” fără dovadă.
 
+## 2026-11-02 — Social Discovery preview succeeds but quality gate fails (corrective PR)
+
+- Production data read-only preview from built image `8f5709a`: 120 YouTube seeds, 2 queries chosen from irrelevant public video titles; YouTube ready-to-probe; TikTok/Facebook unavailable. No provider requests/writes occurred.
+- Problem: freshness-filtered title-only seed != grounded public assertion. Proceeding would waste quota and could misleadingly imply viral misinformation identified.
+- Fix **CODED, CI/PR pending:** accept only extracted source-grounded YouTube claim leads for search. When none: 0 queries + explicit `no_grounded_youtube_claims`; preserve raw title count as diagnostic, do not call APIs by default. Two concrete bad titles added as regression tests.
+- No migrations, scheduler change, API activation or paid resources. Next: CI, review/merge, run another read-only preview; build actual social claim extraction, not title-based keyword expansion.
+
 ## 2026-11-02 — P0-S1/S2 first social-first functional slice (feature PR)
 
 - Implementation branch creates `social-query-planner.ts` plus read-only CLI `social-discovery-preview.ts`, new `pnpm social:preview` and tests. Limits: up to two official YouTube search hints chosen from recent YouTube material only; reasons/provenance included; no RSS seed; no viral/falsity inference.
