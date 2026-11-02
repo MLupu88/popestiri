@@ -2,6 +2,12 @@
 
 **Regulă:** istoric append-only. Pentru orice schimbare funcțională, actualizează acest jurnal + [roadmap.md](roadmap.md) + [PROJECT_STATUS.md](PROJECT_STATUS.md) în același PR. Fiecare intrare conține data, milestone, motiv, PR/SHA, teste, deploy și follow-up; nimic nu se declară „deployed” fără dovadă.
 
+## 2026-11-02 — P0-S3 live 20-description finding: numeric rhetorical question misclassified (corrective PR)
+
+- Production-data read-only operator pilot built from `984f1ec`: 240 scanned, 117 description preflight-usable, 20 previewed, 1 testable assertion claimed. The case was `Dacă n-are 2-3 mii o rochie, ce bărbat e ăla?` attributed in a B1 TV description. This is a rhetorical conditional question, **not factual evidence/claim**. Dune trailer description also passed old length-only preflight.
+- New conservative local description filter **CODED, CI pending**: suppress conditional questions/opinions, low-signal entertainment and generic broadcast metadata; metrics/diagnostics report suppression; regression tests on the actual observed false positive and a valid numeric declarative positive case. `truthfulness` remains `unassessed` and there is no inference of spoken content.
+- No API deployment, data changes, provider calls, transcript retrieval, migrations, timer or public publishing. Next: CI and merged image read-only preview against existing data; then design rights-compliant social speech retrieval and source/evidence engine.
+
 ## 2026-11-02 — P0-S3 YouTube description claim extraction preview (feature PR; not deployed)
 
 - Operator's live read-only Social Discovery preview on built image `b3c6a`: `rawVideoTitleCount=120`, `groundedClaimSeedCount=0`, `queryCount=0`. Zero is the correct protection against title-based noise; it is **not** an operational viral discovery success.
