@@ -32,6 +32,10 @@ PopeȘtiri nu este un agregator de știri sau un produs de community submissions
 
 **Repository main** verificat: `e181e3329c5ba4498478b501e9ef6d8d4a8261ce` (PR #13 merge, 2026-10-13). **Producție** observată ultima dată 2026-10-13, NU reverificată la auditul 2026-11-02. Vezi [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
+### PR #14 CI reliability note (2026-11-02)
+
+During the documentation PR, 3 discovery tests were found to have stale integration fixture timestamps fixed at 2026-10-11; the product's rolling seven-day grouping correctly excludes them in November. Integration test fixture now uses observedAt relative to the run date. Production grouping logic was not changed. CI rerun must pass before merge.
+
 ## 2. R0 — Baseline și pilot (P0; execută primul)
 
 **R0.1 Audit read-only live:** SHA Git și imaginea Docker, /health și /ready, migrări, timer systemd, loguri, număr de articole și candidați, surse active, YouTube configurat (fără afișarea cheii). Separă codul de comportamentul live.
