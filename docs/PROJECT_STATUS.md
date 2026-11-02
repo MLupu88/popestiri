@@ -2,6 +2,14 @@
 
 **Audit static:** 2026-11-02 | **Sursa oficială:** GitHub main | **Actualizări obligatorii:** [roadmap.md](roadmap.md) + acest fișier + [CHANGELOG.md](CHANGELOG.md) în fiecare PR funcțional.
 
+## P0-S1/S2 — Social-first discovery planner (CODED; CI/merge/deploy pending, 2026-11-02)
+
+- **New code:** `packages/discovery/social-query-planner.ts` / `apps/worker/social-discovery-preview.ts`; command `pnpm social:preview`. It selects at most two deterministic YouTube search hints from public YouTube video titles and existing testable claims with YouTube references from the last 7 days, never from bulk RSS headlines.
+- **Preview is read-only:** DB SELECT only, no external requests or writes. Prints query traceability and source coverage. TikTok/Facebook remain `unavailable`; YouTube `ready_to_probe` only if enabled + key present. A separate explicit `--probe-youtube` flag may call the existing official API within the previous bounded adapter contract; no data persisted.
+- **No service, migration, scheduler, external provider or automatic publishing activated.** This is *the first functional slice of social discovery*, not TikTok/Facebook ingestion or a verdict.
+- **Tests added** for planner limits, filtering, deduplication, sources/unavailable states and preview boundaries. CI and live preview not yet observed; deploy must follow review + merged approved SHA.
+- **Next:** GitHub PR CI; then approved deploy/review read-only social preview; separately investigate licensed TikTok/Facebook editorial provider and implement claim/evidence pipeline with abstention policy. See [SOCIAL_FIRST_AUTONOMOUS_FACTCHECK_2026-11-02.md](SOCIAL_FIRST_AUTONOMOUS_FACTCHECK_2026-11-02.md).
+
 ## PRODUCT DIRECTION UPDATED — social-first, autonomous fact checking (2026-11-02)
 
 - **Owner request:** TikTok / Facebook / YouTube sunt prioritare pentru descoperire și măsurarea recirculării afirmațiilor. RSS rămâne sursă secundară de context și dovezi; accesul TikTok/Meta editorial **nu este încă implementat**. YouTube API este singura sursă socială live observată; nu există acces universal la postări, audio sau transcript.
