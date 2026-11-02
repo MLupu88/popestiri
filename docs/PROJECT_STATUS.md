@@ -2,6 +2,15 @@
 
 **Audit static:** 2026-11-02 | **Sursa oficială:** GitHub main | **Actualizări obligatorii:** [roadmap.md](roadmap.md) + acest fișier + [CHANGELOG.md](CHANGELOG.md) în fiecare PR funcțional.
 
+## CURRENT BLOCKER — R0.2 SEMANTIC PREVIEW, 2026-11-02 14:39 UTC
+
+### R0.2 diagnostic — semantic preview crashes on numeric grounding (2026-11-02 14:39 UTC)
+
+- Production operator executed zero-paid `node apps/worker/claim-pilot.ts --preview --limit=20` on release image `ae489a4`. Process **crashed before report** in `validateSemanticAssertion` (`packages/claims/extractor.ts:199`), error `DeepSeek semantic numeric assertion is not present in the candidate content`. This preview did **not** contain `--paid` or `--apply`; no paid calls authorized and no pilot report was generated.
+- Reproduction from static source: old `numberSignature` regex `/\\b\\d[\\d\\s.,]*\\b/g` admits whitespace between unrelated numeric tokens. SQL title+summary concatenation can consequently turn adjacent `12` and `2027` into nonexistent `122027`, producing a false numeric-grounding rejection. **Exact live candidate not identified yet**; treat this as a confirmed defect in parser logic, plausible explanation of crash rather than proven sole production input.
+- Proposed patch **CODED IN PR, CI/merge/deploy pending**: tokenize numeric segments independently (no inter-number whitespace concatenation); do not relax absent-number rejection. In the deterministic preview path, if grounding rejects an assertion, return a source-grounded `uncertain` extraction with zero assertions and explicit `deterministic_grounding_rejected` diagnostics, continue with the remaining sample. DeepSeek-sourced claims still require validation.
+- Added regression tests for number boundaries and rejected deterministic assertions; keep `--preview` read-only, paid zero. Once checks pass, merge and deploy controlled; rerun 20-sample before judging true claim recall or proposing new providers.
+- Parallel **PR #18** documents earlier Claim Radar queue recovery and may need merging/rebasing in sequence; do not conflate that queue fix with the separate semantic pilot crash.
 ## ULTIMUL DEPLOY OBSERVAT — 2026-11-02 14:19 UTC
 - **MERGED:** PR #16 CI și docs continuity PASSED; merge commit `ae489a489139b92c90686fbf6f0b15d2ea926dc2`.
 - **DEPLOYED / INFRA LIVE VERIFIED de operator:** checkout `ae489a4`; imagine rulată `popestiri-app:ae489a489139b92c90686fbf6f0b15d2ea926dc2`; container API healthy, PostgreSQL healthy și neatins, `/ready` = `{"status":"ok","databaseChecked":true}`, timer RSS repornit/activ. Nicio migrare nouă.
