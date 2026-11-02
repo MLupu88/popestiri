@@ -2,6 +2,12 @@
 
 **Regulă:** istoric append-only. Pentru orice schimbare funcțională, actualizează acest jurnal + [roadmap.md](roadmap.md) + [PROJECT_STATUS.md](PROJECT_STATUS.md) în același PR. Fiecare intrare conține data, milestone, motiv, PR/SHA, teste, deploy și follow-up; nimic nu se declară „deployed” fără dovadă.
 
+## 2026-11-02 14:27 UTC — Claim Radar queue progress verified live (post-deploy docs PR)
+- Two controlled one-shot worker runs after PR #16 release `ae489a4`: first at 14:24:56 UTC `candidates=250,leads=0,failed=0`, state corrected to 250 up-to-date / 0 stale. Second at 14:27:36 UTC `candidates=250,leads=250,failed=0`, proving next batch progresses.
+- DB second snapshot: 8.211 candidates, 500 up-to-date, 7.711 never processed, 0 stale, timer active. New discovery records accounted for increase from original 8.172 to 8.211; no evidence of lost data.
+- **Engineering milestone: COMPLETE + VERIFIED ON PROD.** Editorial milestone: **BLOCKED ON QUALITY** — 500 leads: 414 uncertain, 84 ordinary_news_event, 2 entertainment, 0 testable_claim. No manual gold labels yet; cannot conclude the source really had no verifiable claims.
+- No additional code, schema, or paid DeepSeek calls. Keep hourly timer; next R0.2 preview 20 + gold set, then analyze recall and Google Trends separately.
+
 ## 2026-11-02 14:19 UTC — Release ae489a4 deploy în producție (verificare funcțională PENDING)
 - PR #16 integrat, SHA `ae489a489139b92c90686fbf6f0b15d2ea926dc2`, CI/typecheck și docs continuity PASS.
 - Operatorul a verificat checkout la ae489a4, imagine Docker nouă built, API recreated doar `api` la SHA ae489a4 healthy, PostgreSQL healthy fără restart, `/ready` status ok/databaseChecked true, timer RSS repornit; nicio migrare nouă.
