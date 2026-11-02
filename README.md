@@ -1,5 +1,10 @@
 # PopeȘtiri
 
+> **Continuă proiectul de aici:** [Starea curentă și următorul pas](docs/PROJECT_STATUS.md) · [Roadmap v2](docs/roadmap.md) · [Reguli de lucru Codex/Claude Code](docs/WORKING_AGREEMENT.md) · [Server Hetzner](docs/SERVER_RUNBOOK.md) · [Audit 2026-11-02](docs/PROJECT_AUDIT_2026-11-02.md).
+>
+> **Regulă critică:** orice PR funcțional actualizează în același PR `docs/roadmap.md`, `docs/PROJECT_STATUS.md` și `docs/CHANGELOG.md` (CI gate). GitHub main este sursa oficială; starea din producție trebuie verificată separat.
+
+
 Ziar zilnic automat în română. Ținta: colectare → grupare → selecție → verificare → redactare → fotografii → PDF A4 → imprimanta locală.
 
 ## Starea reală: M0.3C.2A — Viral Claim Radar Foundation
