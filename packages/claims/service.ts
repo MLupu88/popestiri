@@ -108,7 +108,9 @@ export async function runClaimRadar(pool:pg.Pool,options:ClaimRadarOptions = {})
   const limit=batchSize(options.batchSize);
   const stateJoin=`LEFT JOIN claim_radar_candidate_state s ON s.candidate_id=c.id`;
   const changed=`(s.candidate_id IS NULL OR c.updated_at>s.last_candidate_updated_at)`;
-  const rows=(await pool.query(`SELECT c.id,c.source_id,c.source_kind,c.source_name,c.original_url,c.title,c.summary,c.observed_at,c.published_at,c.created_at,c.updated_at,c.provenance,c.popularity_signals,si.platform AS manual_platform,
+  // Preserve PostgreSQL microseconds in checkpoint values; pg's JS Date loses them.
+  // Otherwise processed candidates remain falsely dirty and starve newer ones.
+  const rows=(await pool.query(`SELECT c.id,c.source_id,c.source_kind,c.source_name,c.original_url,c.title,c.summary,c.observed_at,c.published_at,c.created_at,c.updated_at::text AS updated_at,c.provenance,c.popularity_signals,si.platform AS manual_platform,
       s.content_fingerprint AS state_content_fingerprint,s.metric_fingerprint AS state_metric_fingerprint,s.extraction AS state_extraction
       FROM discovery_candidates c LEFT JOIN social_intake_items si ON si.canonical_url=c.canonical_url ${stateJoin}
       WHERE ${args.length ? 'c.id=ANY($1::text[]) AND ' : ''}${changed}
