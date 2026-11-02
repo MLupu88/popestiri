@@ -2,6 +2,13 @@
 
 **Audit static:** 2026-11-02 | **Sursa oficială:** GitHub main | **Actualizări obligatorii:** [roadmap.md](roadmap.md) + acest fișier + [CHANGELOG.md](CHANGELOG.md) în fiecare PR funcțional.
 
+## NEXT P0 — YouTube description claims preview (2026-11-02)
+
+- Last live operator command: `b3c6a` one-shot read-only Social Discovery gave `seedCount=120`, `groundedClaimSeedCount=0`, `queryCount=0`, `no_grounded_youtube_claims`. Correct, but still no social statement content. Live API image last confirmed `ae489a4`; new images built/run in isolated `docker compose run`, NOT deployed as API.
+- **CODED / CI/merge/deploy/live pending:** `apps/worker/youtube-description-preview.ts`, `packages/claims/youtube-description-preview.ts`, `tests/youtube-description-preview.test.ts`, `pnpm youtube:description-preview`.
+- Pilot reads **only YouTube Data API description metadata already present**; no video transcription, no paid calls, no provider requests or DB writes, max 240 scanned and 20 returned. Validated candidate assertions must have verbatim excerpt in the description (`summary`) and pass existing semantic source-grounding. Excludes title-only assertions; untrusted/promo/missing descriptions are held. Testability != truth or virality.
+- **NEXT ACTION:** CI and review feature PR; on merged SHA build isolated tagged image without restarting API/DB, run `node apps/worker/youtube-description-preview.ts --limit=20` with `APP_VERSION` override and evaluate actual descriptions. Result may legitimately contain 0 testable assertions. Then rights-compliant transcript/caption provider and social metrics; TikTok/Facebook remain `unavailable`.
+
 ## LIVE QUALITY FINDING — P0-S2 YouTube title selection (2026-11-02)
 
 - Operator ran **read-only social preview** with image `8f5709a`, `seedCount=120`, `queryCount=2`; selected an old-stone-in-Buzău human-interest title and a Becali TV headline. These are **unverified YouTube titles, not extracted checkable claims**. This confirms the code path runs, but the result is editorially poor.
