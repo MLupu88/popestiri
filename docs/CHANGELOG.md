@@ -2,6 +2,12 @@
 
 **Regulă:** istoric append-only. Pentru orice schimbare funcțională, actualizează acest jurnal + [roadmap.md](roadmap.md) + [PROJECT_STATUS.md](PROJECT_STATUS.md) în același PR. Fiecare intrare conține data, milestone, motiv, PR/SHA, teste, deploy și follow-up; nimic nu se declară „deployed” fără dovadă.
 
+## 2026-11-02 — Claim Radar timestamp precision repair (feature PR în curs)
+- Dovezi read-only: 250/250 processate au diferență pozitivă sub 1 ms între updated_at și checkpoint (medie 0,4758 ms), 7.922 fără state; 6 cicluri worker cu 250 candidates / 0 leads.
+- Fix de cod: selected `c.updated_at::text AS updated_at` în `packages/claims/service.ts` păstrează exact microsecundele PostgreSQL, evitând conversia la JS Date; nu schimbă schema sau datele din DB.
+- Test regression adăugat pentru 6 cifre fracționare, batch size 1, drenarea cozii, zero rerulare și revalidarea cu conținut nemodificat.
+- Status: **CODED**, verificare CI/PR/merge/deploy/prod pending, niciun restart sau apel plătit efectuat.
+
 ## 2026-11-02 — Live audit discovery + Claim Radar (PR de documentație în curs)
 - Operator Hetzner a verificat 2 Nov: checkout Git/docs 878d81b, container API e181e33 healthy, DB healthy, /ready databaseChecked true, timer RSS active; fără modificare runtime.
 - DB: 8.172 discovery candidates, 483 în 24h, 2.687 în 7 zile; 10 discovery runs succeeded; YouTube 1.069 candidați, Google Trends doar 1.
