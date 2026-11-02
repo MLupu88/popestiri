@@ -38,6 +38,13 @@ PopeȘtiri nu este un agregator de știri sau un produs de community submissions
 
 During the documentation PR, 3 discovery tests were found to have stale integration fixture timestamps fixed at 2026-10-11; the product's rolling seven-day grouping correctly excludes them in November. Integration test fixture now uses observedAt relative to the run date. Production grouping logic was not changed. CI rerun PASSED, PR #14 MERGED.
 
+### P0-S3 live pilot QA — rhetorical question false positive (2026-11-02)
+
+- Operator ran isolated read-only preview on built image `984f1ec` (not deployed as API): 240 YouTube candidates scanned, 117 descriptions passed length/structure preflight, 20 sampled, **one `testable_claim` proposed**. It was B1 TV/Gigi Becali: `Dacă n-are 2-3 mii o rochie, ce bărbat e ăla?` — a conditional rhetorical question, not a defensible objective factual assertion. A long entertainment trailer also passed the previous text-length filter. No transcripts, external API calls, DB writes, independent verification or truth verdicts.
+- **Corrective PR CODED / CI pending:** constrain the description-specific filter to exclude questions, hypotheticals, opinion/promise fragments from accepted factual assertions, even with numbers, and explicitly reject known low-signal generic broadcasts and entertainment titles. Preserve description provenance and semantic validator; report `nonFactualAssertionsSuppressed` and `low_signal_video_format`. No changes to global RSS extractor classification, social source access, scheduler, or public publishing.
+- Regression tests include **the exact observed Becali example**, an entertainment trailer and a positive declarative quantitative statement. Fail closed: if no grounded declarative description statement remains, return 0 rather than label a rhetorical question `testable_claim`.
+- A hard rule-based gate may still miss subtle nuance or reject a legitimate claim; do not present this as semantic understanding of Romanian video speech. Next: evaluate new 20-sample and then investigate licensed transcript/audio and evidence engine, not add more title filters indefinitely.
+
 ### P0-S3 — YouTube description claim pilot (CODED / CI and release pending)
 
 - Live `b3c6a` read-only social discovery preview at 2026-11-02 16:30 UTC: `rawVideoTitleCount=120`, `groundedClaimSeedCount=0`, `queryCount=0`, `blocker=no_grounded_youtube_claims`. This is **correct fail-closed behavior**, not proof misinformation is absent. YouTube `ready_to_probe`, TikTok/Facebook `unavailable`.
