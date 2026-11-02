@@ -18,7 +18,8 @@ export type DescriptionStatus =
   | 'mostly_links_or_promotional'
   | 'untrusted_instructions'
   | 'invalid_video_source'
-  | 'extraction_rejected';
+  | 'extraction_rejected'
+  | 'low_signal_video_format';
 
 export type SocialDescriptionAssertion = {
   text: string;
@@ -39,6 +40,7 @@ export type SocialDescriptionCase = {
   classification: 'testable_claim' | 'unassessed';
   descriptionAssertions: SocialDescriptionAssertion[];
   titleOnlyAssertionSuppressed: boolean;
+  nonFactualAssertionsSuppressed: number;
   limitations: string;
 };
 
@@ -49,6 +51,17 @@ const SCOPE = 'youtube-description-pilot-v1';
 const LINK = /https?:\/\/\S+/giu;
 const INSTRUCTION = /ignore previous instructions|system prompt|\[tool_call\]|<script|javascript:/iu;
 const PROMOTIONAL = /abon(?:eaz[aă]-te|ament)|subscribe|urm[aă]re[sș]te|follow|like [sș]i share|cod reducere/iu;
+// Short generic news bulletins, entertainment trailers and gameplay routinely
+// carry long descriptions, but offer no reliable basis to infer spoken claims.
+const LOW_SIGNAL_FORMAT = /(?:^|[^\p{L}])(?:final trailer|official (?:trailer|video|audio)|gameplay|gaming|muzică|muzica|știrile\s+(?:euronews|românia|de la)|stirile\s+(?:euronews|romania|de la))(?=[^\p{L}]|$)/iu;
+function isDeclarativeCheckableStatement(value: string) {
+  if (/[?？!！]/u.test(value)) return false;
+  const text=value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  // A verifiable claim must not be an opinion, rhetorical question,
+  // hypothetical or future promise just because it contains a number.
+  if (/(?:^|[^\p{L}])(?:daca|if|cine|de ce|cum|probabil|posibil|cred|consider|parerea|opinia|sper|as vrea|ar trebui|ar putea)(?=[^\p{L}]|$)/iu.test(text)) return false;
+  return true;
+}
 
 function permittedVideoURL(value: string) {
   try {
@@ -67,6 +80,7 @@ function inspectDescription(candidate: YouTubeDescriptionCandidate): Description
   if (candidate.source_kind !== 'youtube_api' || !permittedVideoURL(candidate.original_url)) return 'invalid_video_source';
   const summary = (candidate.summary ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
   if (INSTRUCTION.test(summary)) return 'untrusted_instructions';
+  if (LOW_SIGNAL_FORMAT.test(candidate.title)) return 'low_signal_video_format';
   const withoutLinks = summary.replace(LINK, ' ').replace(/#[\p{L}\p{N}_-]+/gu, ' ').replace(/\s+/g, ' ').trim();
   if (withoutLinks.length < 70 || withoutLinks.split(/\s+/).length < 10) return 'missing_or_short_description';
   const linkCount = (summary.match(LINK) ?? []).length;
@@ -118,6 +132,7 @@ export function previewYouTubeDescriptions(
     let assertions:SocialDescriptionAssertion[]=[];
     let status=preflight;
     let titleOnlyAssertionSuppressed=false;
+    let nonFactualAssertionsSuppressed=0;
     let limitations='YouTube channel description, NOT a transcript of speech or independent evidence. No truth verdict.';
     if (preflight==='usable_description') {
       const input:ClaimExtractionInput = {
@@ -127,8 +142,10 @@ export function previewYouTubeDescriptions(
       };
       try {
         const extraction=validateSemanticExtraction(deterministicSemanticExtract(input),input);
-        assertions=groundedSummaryAssertions(candidate,extraction);
-        titleOnlyAssertionSuppressed=extraction.assertions.some(item=>item.testability==='testable') && assertions.length===0;
+        const grounded=groundedSummaryAssertions(candidate,extraction);
+        assertions=grounded.filter(item=>isDeclarativeCheckableStatement(item.text));
+        nonFactualAssertionsSuppressed=grounded.length-assertions.length;
+        titleOnlyAssertionSuppressed=extraction.assertions.some(item=>item.testability==='testable') && grounded.length===0;
         if (assertions.length) classification='testable_claim';
       } catch {
         status='extraction_rejected';
@@ -143,6 +160,7 @@ export function previewYouTubeDescriptions(
       descriptionStatus:status,
       classification,descriptionAssertions:assertions,
       titleOnlyAssertionSuppressed,
+      nonFactualAssertionsSuppressed,
       limitations
     });
   }
@@ -160,12 +178,13 @@ export function previewYouTubeDescriptions(
     testableDescriptionCases:cases.filter(item=>item.descriptionAssertions.length>0).length,
     testableDescriptionAssertions:cases.reduce((sum,item)=>sum+item.descriptionAssertions.length,0),
     titleOnlyClaimsSuppressed:cases.filter(item=>item.titleOnlyAssertionSuppressed).length,
+    nonFactualAssertionsSuppressed:cases.reduce((sum,item)=>sum+item.nonFactualAssertionsSuppressed,0),
     rejectionCounts:cases.reduce<Record<string,number>>((acc,item)=>{
       if(item.descriptionStatus!=='usable_description') acc[item.descriptionStatus]=(acc[item.descriptionStatus]??0)+1;
       return acc;
     },{}),
     cases,
-    limitation:'Publisher-authored description only. No video audio/transcript, viral reach, independent fact check, LLM paid calls or database mutation.'
+    limitation:'Descriptions passing minimum text length are not necessarily editorially useful. Rhetorical, hypothetical and opinion-led numeric statements are not factual claims. No video audio/transcript, viral reach, independent fact check, LLM paid calls or database mutation.'
   };
 }
 
