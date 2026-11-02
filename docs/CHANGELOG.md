@@ -2,6 +2,11 @@
 
 **Regulă:** istoric append-only. Pentru orice schimbare funcțională, actualizează acest jurnal + [roadmap.md](roadmap.md) + [PROJECT_STATUS.md](PROJECT_STATUS.md) în același PR. Fiecare intrare conține data, milestone, motiv, PR/SHA, teste, deploy și follow-up; nimic nu se declară „deployed” fără dovadă.
 
+## 2026-11-02 — Corectare fixture de teste dependentă de dată (PR #14)
+- CI inițial #14: 65/68 teste passed, 3 failed în tests/discovery.test.ts deoarece fixture-ul `candidate()` folosea 2026-10-11, în afara ferestrei `now() - interval '7 days'` la 2026-11-02.
+- Modificat exclusiv fixture-ul `candidate()` să creeze date observate relativ la timpul rulării (24h în urmă), păstrând datele fixe doar în testele deliberate de distanțe temporale. NU se schimbă logica produsului și nu se fac migrări sau deploy.
+- Necesită confirmarea rerulării CI pe commitul corectat; nu afirma 68/68 înaintea rezultatului.
+
 ## 2026-11-02 — Audit / proiect de continuitate (în PR, nu încă în main sau pe server)
 - Audit static GitHub la HEAD `e181e33`, raport de evidență separat de ceea ce a fost observat în producție la 2026-10-13.
 - Roadmap v2 realiniat la **automatic viral debunking**, fără dependență de community submissions.
