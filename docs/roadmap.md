@@ -38,6 +38,16 @@ During the documentation PR, 3 discovery tests were found to have stale integrat
 
 ## 2. R0 — Baseline și pilot (P0; execută primul)
 
+### R0.1 — Release AE489A4: deployed, worker verification pending (2026-11-02)
+
+- PR #16 / CI trecut → merge `ae489a489139b92c90686fbf6f0b15d2ea926dc2`; operatorul a construit imaginea și a făcut deploy pe Hetzner. API healthy, DB healthy, `/ready` OK, timer RSS activ; fără migrări.
+- Backup DB 4,5 MB cu listare `pg_restore -l` validată, dar restaurarea completă nu a fost testată.
+- Curățenie conservatoare: `docker builder prune --force --filter until=168h` a eliberat spațiu (84% → 64% used; 12 → 27 GB free). Nu s-au șters imagini de rollback, volume sau containere.
+- **Acum:** validare funcțională a cozii (250 vechi pot fi reîncadrați ca up-to-date în prima rulare; apoi `never_processed` trebuie să scadă). Nu declara fixul complet înainte de jurnalul și SQL-ul live, nu confunda sănătatea API cu claim extraction quality.
+- După verificare: pilot fără paid calls, gold set, Google Trends 1 candidat.
+
+
+
 ### R0.1 — Cauza blocajului confirmată în producție (2026-11-02)
 
 - Din 8.172 discovery candidates, 7.922 nu au fost procesați niciodată în Claim Radar. Cele 250 cu state existent apar toate stale; ultimele șase rulări au raportat constant `candidates=250, leads=0, failed=0, complete=false`.
@@ -157,7 +167,7 @@ During the documentation PR, 3 discovery tests were found to have stale integrat
 
 | ID | Milestone/PR | Stare |
 |---|---|---|
-| P0-01 | Audit live + fix precizie timestamp Claim Radar + pilot 20 | FIX CODED; CI & DEPLOY PENDING |
+| P0-01 | Audit live + fix precizie timestamp Claim Radar + pilot 20 | DEPLOYED ae489a4; WORKER VERIFICATION PENDING |
 | P0-02 | Gold set + evaluare extraction | TODO |
 | P0-03 | Calibrare DeepSeek, doar dacă e justificată | TODO |
 | P0-04 | Claim normalization/semantic matching | TODO |

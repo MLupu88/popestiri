@@ -2,6 +2,13 @@
 
 **Regulă:** istoric append-only. Pentru orice schimbare funcțională, actualizează acest jurnal + [roadmap.md](roadmap.md) + [PROJECT_STATUS.md](PROJECT_STATUS.md) în același PR. Fiecare intrare conține data, milestone, motiv, PR/SHA, teste, deploy și follow-up; nimic nu se declară „deployed” fără dovadă.
 
+## 2026-11-02 14:19 UTC — Release ae489a4 deploy în producție (verificare funcțională PENDING)
+- PR #16 integrat, SHA `ae489a489139b92c90686fbf6f0b15d2ea926dc2`, CI/typecheck și docs continuity PASS.
+- Operatorul a verificat checkout la ae489a4, imagine Docker nouă built, API recreated doar `api` la SHA ae489a4 healthy, PostgreSQL healthy fără restart, `/ready` status ok/databaseChecked true, timer RSS repornit; nicio migrare nouă.
+- DB backup verificat prin `pg_restore -l` la `/root/backups/popestiri/popestiri_20261102T140956Z.dump`, 4,5 MB; nu a fost efectuat restore test. Config backup local făcut înaintea updateului.
+- Curățenie container build cache doar `docker builder prune --force --filter until=168h`: Docker 16,71 GB cache eliminat; disc 84% → 64% ocupare, 12 GB → 27 GB liberi. Nu s-au curățat volume sau imagini.
+- **Mai lipsește:** demonstrația live că `claim_radar` avansează prin 7.922 candidați neprocesați; un singur worker smoke + SELECT read-only urmează. Nu declara remedierea validată funcțional.
+
 ## 2026-11-02 — Claim Radar timestamp precision repair (feature PR în curs)
 - Dovezi read-only: 250/250 processate au diferență pozitivă sub 1 ms între updated_at și checkpoint (medie 0,4758 ms), 7.922 fără state; 6 cicluri worker cu 250 candidates / 0 leads.
 - Fix de cod: selected `c.updated_at::text AS updated_at` în `packages/claims/service.ts` păstrează exact microsecundele PostgreSQL, evitând conversia la JS Date; nu schimbă schema sau datele din DB.

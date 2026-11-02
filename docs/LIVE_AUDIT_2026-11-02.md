@@ -72,3 +72,8 @@ Hetzner login 2026-11-02: 80,1% spațiu disc, 46% swap, 19 procese zombie, actua
 ## Confirmare root cause — 2026-11-02 (query read-only operator)
 
 PostgreSQL a arătat `procesati=250`, `decalaj_sub_1_ms=250`, `decalaj_peste_1_ms=0`, `decalaj_mediu_ms=0.4758`. Corelat cu `never_processed=7922`, `stale=250`, `up_to_date=0` și 6 rulari identice `candidates=250/leads=0/failed=0`, confirmă că checkpointul pierde microsecundele timestampului prin conversia pg→JS Date. Un fix propus citește timestampul din baza de date ca text exact, plus teste și rollout controlat. **Nicio intervenție live nu a fost executată pentru acest fix.**
+
+
+## Release follow-up (14:19 UTC, 2 Nov 2026)
+
+Operatorul a confirmat API la imaginea `popestiri-app:ae489a489139b92c90686fbf6f0b15d2ea926dc2` healthy, PostgreSQL healthy, `/ready` = `{"status":"ok","databaseChecked":true}`, timer RSS repornit. Backup `popestiri_20261102T140956Z.dump` listat cu `pg_restore -l`, 4,5 MB, nu restaurat într-un test. Docker build cache prune selectiv (>7 zile), 84% → 64% disc utilizat. **Claim Radar backlog post-deploy nu a fost încă măsurat**, deci starea este DEPLOYED + INFRA LIVE VERIFIED, nu FUNCTIONALLY VERIFIED.
