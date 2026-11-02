@@ -144,9 +144,11 @@ test('discovery migration provides the unified inbox and workflow state without 
   } finally {await db.close();}
 });
 
+// Integration fixtures must remain inside the rolling seven-day reconciliation window.
+// Fixed 2026-10-11 observedAt made these tests fail as the calendar advanced.
 function candidate(source: DiscoverySource, canonicalUrl: string, title: string, provenanceSourceOrKind: string=source.name, sourceKind: DiscoveryCandidateInput['sourceKind']='rss'): DiscoveryCandidateInput {
   const provenanceSource=sourceKind==='rss' ? provenanceSourceOrKind : source.name;
-  return {sourceId:source.id,sourceKind,sourceName:source.name,originalUrl:canonicalUrl,canonicalUrl,title,observedAt:'2026-10-11T10:00:00.000Z',publishedAt:null,provenance:{adapter:'test',registryId:source.id,sourceName:provenanceSource,verificationUrl:source.verification_url,viewpoint:source.viewpoint,limitation:'fixture'},popularitySignals:{}};
+  return {sourceId:source.id,sourceKind,sourceName:source.name,originalUrl:canonicalUrl,canonicalUrl,title,observedAt:new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),publishedAt:null,provenance:{adapter:'test',registryId:source.id,sourceName:provenanceSource,verificationUrl:source.verification_url,viewpoint:source.viewpoint,limitation:'fixture'},popularitySignals:{}};
 }
 
 test('source and candidate failures are isolated and accurately marked partial', async () => {
