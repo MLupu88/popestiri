@@ -102,6 +102,60 @@ test('semantic schema rejects a testable classification without an objectively t
   assert.throws(()=>validateDeepSeekSemanticExtraction({sourceHeadline:candidate.title,assertions:[{assertionText:'Taxele vor fi mai mici anul viitor',machineParaphrase:null,attributedSpeaker:'Ministrul',verbatimQuote:null,testability:'not_testable',editorialRelevance:'high',verificationPriority:'high',truthfulness:'unassessed',evidence:evidence(candidate,'title',candidate.title)}],classification:'testable_claim',extractionMethod:'deepseek',extractionModel:'model',extractionVersion:'semantic-deepseek-v2',limitations:'test',truthfulness:'unassessed',evidence:evidence(candidate,'title',candidate.title)},candidate),/testable_claim/);
 });
 
+test('pilot preserves distinct numeric tokens across title and summary boundaries',async()=>{
+  const db=new PGlite();
+  try {
+    const pool=await poolFor(db);
+    const candidate=input('Guvernul alocă 12','2027 sunt prevăzute alocări de 12 milioane de lei.','numeric-boundary');
+    await pool.query(`INSERT INTO discovery_candidates(id,source_id,source_kind,source_name,original_url,canonical_url,title,summary,observed_at) VALUES($1,'rss-hotnews','rss','HotNews',$2,$2,$3,$4,now())`,[candidate.candidateId,candidate.originalUrl,candidate.title,candidate.summary]);
+    const report=await runSemanticClaimPilot(pool,{mode:'preview',candidateIds:[candidate.candidateId]});
+    assert.equal(report.candidates.length,1);
+    assert.equal(report.candidates[0].assertionCount,1);
+    assert.equal(report.candidates[0].afterClassification,'testable_claim');
+    assert.equal(report.candidates[0].sourceGrounding.sourceConsistent,true);
+    assert.equal(report.candidates[0].extractionOrigin,'deterministic');
+    assert.equal(report.summary.deterministicFallbacks,0);
+    assert.equal(report.summary.apiAttempts,0);
+    assert.equal(report.runId,null);
+  } finally {await db.close();}
+});
+
+test('preview rejects unsupported deterministic numbers per candidate rather than aborting sample',async()=>{
+  const db=new PGlite();
+  try {
+    const pool=await poolFor(db);
+    const first=input('Guvernul alocă 12 milioane de lei','Cifra este menționată în raport.','reject-number');
+    const second=input('Guvernul alocă 8 milioane de lei','Măsura este descrisă în document.','accept-number');
+    for(const candidate of [first,second]) {
+      await pool.query(`INSERT INTO discovery_candidates(id,source_id,source_kind,source_name,original_url,canonical_url,title,summary,observed_at) VALUES($1,'rss-hotnews','rss','HotNews',$2,$2,$3,$4,now())`,[candidate.candidateId,candidate.originalUrl,candidate.title,candidate.summary]);
+    }
+    const provider:SemanticClaimExtractionProvider={
+      method:'deterministic_v1',
+      extractionVersion:'semantic-deterministic-v2',
+      extractionModel:null,
+      extractSemantic:async (candidate)=>{
+        const valid=deterministicSemanticExtract(candidate);
+        if(candidate.candidateId!==first.candidateId) return valid;
+        return {...valid,assertions:[{assertionText:'Guvernul alocă 999 milioane de lei',machineParaphrase:null,attributedSpeaker:null,verbatimQuote:null,testability:'testable',editorialRelevance:'medium',verificationPriority:'medium',truthfulness:'unassessed',evidence:evidence(candidate,'title',candidate.title)}],classification:'testable_claim'};
+      }
+    };
+    const report=await runSemanticClaimPilot(pool,{mode:'preview',candidateIds:[first.candidateId,second.candidateId],provider});
+    assert.equal(report.candidates.length,2);
+    const rejected=report.candidates.find(item=>item.candidateId===first.candidateId)!;
+    const accepted=report.candidates.find(item=>item.candidateId===second.candidateId)!;
+    assert.equal(rejected.afterClassification,'uncertain');
+    assert.equal(rejected.assertionCount,0);
+    assert.equal(rejected.extractionOrigin,'deterministic_fallback');
+    assert.equal(rejected.sourceGrounding.fallback,'deterministic_grounding_rejected');
+    assert.equal(rejected.acceptedExtraction,false);
+    assert.equal(accepted.afterClassification,'testable_claim');
+    assert.equal(accepted.assertionCount,1);
+    assert.equal(report.summary.deterministicFallbacks,1);
+    assert.equal(report.summary.apiAttempts,0);
+    assert.equal(report.runId,null);
+    assert.equal((await pool.query('SELECT count(*)::int AS n FROM semantic_claim_pilot_runs')).rows[0].n,0);
+  } finally {await db.close();}
+});
 test('pilot preview and dry-run are read-only and report before/after grounding diagnostics',async()=>{
   const db=new PGlite();
   try {
