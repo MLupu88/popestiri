@@ -42,10 +42,18 @@ During the documentation PR, 3 discovery tests were found to have stale integrat
 
 - Production operator executed zero-paid `node apps/worker/claim-pilot.ts --preview --limit=20` on release image `ae489a4`. Process **crashed before report** in `validateSemanticAssertion` (`packages/claims/extractor.ts:199`), error `DeepSeek semantic numeric assertion is not present in the candidate content`. This preview did **not** contain `--paid` or `--apply`; no paid calls authorized and no pilot report was generated.
 - Reproduction from static source: old `numberSignature` regex `/\\b\\d[\\d\\s.,]*\\b/g` admits whitespace between unrelated numeric tokens. SQL title+summary concatenation can consequently turn adjacent `12` and `2027` into nonexistent `122027`, producing a false numeric-grounding rejection. **Exact live candidate not identified yet**; treat this as a confirmed defect in parser logic, plausible explanation of crash rather than proven sole production input.
-- Proposed patch **CODED IN PR, CI/merge/deploy pending**: tokenize numeric segments independently (no inter-number whitespace concatenation); do not relax absent-number rejection. In the deterministic preview path, if grounding rejects an assertion, return a source-grounded `uncertain` extraction with zero assertions and explicit `deterministic_grounding_rejected` diagnostics, continue with the remaining sample. DeepSeek-sourced claims still require validation.
+- Proposed patch **PR #19 MERGED, DEPLOY PENDING**: tokenize numeric segments independently (no inter-number whitespace concatenation); do not relax absent-number rejection. In the deterministic preview path, if grounding rejects an assertion, return a source-grounded deterministic fallback with diagnostics (possibly a valid testable assertion) and continue with the remaining sample. DeepSeek-sourced claims still require validation.
 - Added regression tests for number boundaries and rejected deterministic assertions; keep `--preview` read-only, paid zero. Once checks pass, merge and deploy controlled; rerun 20-sample before judging true claim recall or proposing new providers.
-- Parallel **PR #18** documents earlier Claim Radar queue recovery and may need merging/rebasing in sequence; do not conflate that queue fix with the separate semantic pilot crash.
+- This PR #18 records earlier Claim Radar recovery and reconciles documentation with merged PR #19; keep the two fixes distinct.
 
+
+### R0.1 — Functional validation COMPLETE for queue progress (2026-11-02 14:27 UTC)
+
+- Release `ae489a4` (PR #16) installed. At 14:24:56 UTC the first one-shot worker cycle processed `250` stale candidates with `leads=0,failed=0` and corrected all 250 checkpoints (`stale=0`).
+- At 14:27:36 UTC the next cycle ran with `candidates=250,leads=250,failed=0,complete=false`. Post-run SQL: **8.211 discovery candidates; 500 up to date; 7.711 never processed; 0 stale**. Thus progress is REAL and timestamp starvation is FIXED IN PRODUCTION.
+- Content evaluation remains a P0 blocker, **not** an infrastructure blocker: 500 claim leads, 414 `uncertain`, 84 `ordinary_news_event`, 2 `entertainment`, **0 `testable_claim`**. Need representative gold set before judging false negatives and improving recall.
+- Continue default hourly timer with bounded batches (250 per cycle), not an unlimited paid/backfill run; watch backlog as additional items arrive.
+- **Next quality gate (R0.2):** deterministic semantic `--preview --limit=20` without `--apply`/`--paid`, review 20 with true/false checkability labels, preserve source provenance and error taxonomy; DeepSeek only after editorial pilot approval.
 
 ### R0.1 — Release AE489A4: deployed, worker verification pending (2026-11-02)
 
@@ -176,7 +184,7 @@ During the documentation PR, 3 discovery tests were found to have stale integrat
 
 | ID | Milestone/PR | Stare |
 |---|---|---|
-| P0-01 | Audit live + fix precizie timestamp Claim Radar + pilot 20 | DEPLOYED ae489a4; WORKER VERIFICATION PENDING |
+| P0-01 | Audit live + fix timestamp Claim Radar | DONE: FUNCTIONALLY VERIFIED 2026-11-02 14:27 UTC |
 | P0-02 | Gold set + evaluare extraction | TODO |
 | P0-03 | Calibrare DeepSeek, doar dacă e justificată | TODO |
 | P0-04 | Claim normalization/semantic matching | TODO |
