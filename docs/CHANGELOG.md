@@ -2,6 +2,13 @@
 
 **Regulă:** istoric append-only. Pentru orice schimbare funcțională, actualizează acest jurnal + [roadmap.md](roadmap.md) + [PROJECT_STATUS.md](PROJECT_STATUS.md) în același PR. Fiecare intrare conține data, milestone, motiv, PR/SHA, teste, deploy și follow-up; nimic nu se declară „deployed” fără dovadă.
 
+## 2026-11-02 — Owner changed product direction: SOCIAL-FIRST and autonomous evidence-gated publication (docs-only PR)
+- Prioritatea editorială devine TikTok, Facebook și YouTube, nu volumul RSS; presa rămâne instrument de context și identificare a surselor primare. Un trending topic nu este echivalent cu dezinformarea.
+- Se elimină aprobarea umană obligatorie pentru fiecare articol ca obiectiv de produs. Înlocuire planificată cu `auto_publish` numai când sunt îndeplinite gate-uri reproductibile de dovezi, drepturi și risc; `hold_for_exception` / `no_verdict` când cazul nu poate fi dovedit. Human spot-check în shadow testing pentru validarea sistemului, nu workflow zilnic obligatoriu.
+- TikTok/Meta editorial **nu au integrare verificată**; TikTok Research academic nu poate fi reutilizat fără drepturi explicite. YouTube API este singura sursă socială automatizată observată. PR documentație, **niciun cod/API activat și niciun deploy**.
+- Pilot semantic 20/20 pe imaginea construită `e87df4c`: 3 testable, 13 uncertain, 3 ordinary news, 1 entertainment, 0 apeluri plătite, fără verificare independentă. `e87df4c` nu a fost încă confirmat ca API deployed.
+- New canonical design: [SOCIAL_FIRST_AUTONOMOUS_FACTCHECK_2026-11-02.md](SOCIAL_FIRST_AUTONOMOUS_FACTCHECK_2026-11-02.md). Next: P0-S1/S2 social authorized discovery, then Tavily/evidence engine, shadow-gated autonomous publishing.
+
 ## 2026-11-02 14:39 UTC — Fix semantic pilot numeric validation (PR #19 merged; deploy pending)
 - Live preview `--preview --limit=20` on `ae489a4` crashed at `extractor.ts:199` with `DeepSeek semantic numeric assertion is not present in the candidate content`; no report, no paid/apply flags.
 - Cause in parser: whitespace-containing numeric signature regex can conflate distinct numbers separated by a space at field boundaries, creating false numeric grounding failures. Live trigger candidate unknown; deterministic regression added.
