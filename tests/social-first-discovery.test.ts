@@ -30,7 +30,8 @@ test('planner rejects unsafe, generic, old and entertainment seeds and deduplica
     seed('duplicate','Autoritatile sustin ca apa de la robinet este contaminata'),
   ],{now});
   assert.equal(result.length,1);
-  assert.equal(result[0].seedId,'only-one');
+  // Deterministic tie-break is lexicographic by ID; both spellings deduplicate.
+  assert.equal(result[0].seedId,'duplicate');
   assert.equal(result[0].query.includes('http'),false);
 });
 
