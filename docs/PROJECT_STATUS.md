@@ -30,6 +30,10 @@
 | Timer RSS | `popestiri-rss-ingest.timer` (systemd host-level) |
 | Secret config | `/opt/popestiri/.env.production` (niciodată afișat/copiat în repo) |
 
+## CI / PR #14
+
+2026-11-02: initial CI test failed 3/68 because static test candidates were dated 2026-10-11 and excluded by rolling 7-day grouping. Branch now includes candidate fixture anchored 24h before current execution. **Rerun CI pending**; do not merge if red. No runtime behaviour changed; no Hetzner deployment for this patch.
+
 ## Next action (P0)
 
 1. Audit Hetzner **read-only**: code/image SHA, `/ready`, DB/migrări, RSS timer/loguri, surse, YouTube (fără chei tipărite).
