@@ -38,6 +38,15 @@ PopeȘtiri nu este un agregator de știri sau un produs de community submissions
 
 During the documentation PR, 3 discovery tests were found to have stale integration fixture timestamps fixed at 2026-10-11; the product's rolling seven-day grouping correctly excludes them in November. Integration test fixture now uses observedAt relative to the run date. Production grouping logic was not changed. CI rerun PASSED, PR #14 MERGED.
 
+### P0-S1/S2 — Read-only social discovery planner (CODED, PR/CI pending; 2026-11-02)
+
+- New `packages/discovery/social-query-planner.ts`: deterministic bounded query planner **only from recent YouTube claim leads / public YouTube titles**, no RSS seeds, max 2 queries, reject generic bulletins, entertainment, prompt injection, old/future records; query reason and original candidate/lead ID preserved. These queries are discovery hints, **not fact-checked claims or proof of virality**.
+- New `apps/worker/social-discovery-preview.ts --preview` (and `pnpm social:preview`): read-only DB SELECT; prints selected queries and actual coverage status of YouTube/TikTok/Facebook, **zero provider calls and zero DB writes**. `--probe-youtube` is *separate explicit opt-in* and uses only the existing official YouTube adapter (at most two search queries plus capped videos metadata/mostPopular queries); **no persistence**, no TikTok/Meta calls, no paid model.
+- TikTok and Facebook always report `unavailable` until editorial API/provider access is approved and implemented; academic TikTok Research remains separate. YouTube reports `ready_to_probe` only if registry source enabled and API key configured. No new API permissions, no migrations, no scheduler change, no web publishing.
+- New `tests/social-first-discovery.test.ts` covers deterministic ranking, sanitization, dedup, bounds, stale/unsafe title rejection, coverage states, and preview call boundaries. **GitHub CI is the gate; no live execution yet.**
+- **Next exact action:** after CI review/merge, sync Git checkout to release while `APP_VERSION` remains pinned to deployed image, build new tagged image, run `--preview` as isolated `docker compose run --rm --no-deps -T api node apps/worker/social-discovery-preview.ts --preview`, assess plan and actual coverage. Run `--probe-youtube` only with explicit approval of YouTube API quota; no automatically recurring search until measured ROI/quotas.
+- Separate product direction: prioritize TikTok/Facebook integration eligibility/provider proof while using **YouTube as only currently evidenced connected social platform**. P0-S1/S2 is not end-to-end viral discovery, evidence verification or autonomous fact-check publishing.
+
 ## 2. R0 — Baseline și pilot (P0; execută primul)
 
 ### R0.2 diagnostic — semantic preview crashes on numeric grounding (2026-11-02 14:39 UTC)
