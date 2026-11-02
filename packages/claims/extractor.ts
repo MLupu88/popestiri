@@ -165,7 +165,11 @@ function validateSemanticEvidence(item: {field:string;excerpt:string;sourceUrl:s
 }
 
 const negativeAssertionPattern=/\b(nu|fara|niciun|niciunul|dezminte|dezminț|nega|neaga|negat|respinge|respins|contrazice|contrazis|fals|nu exista)\b/i;
-const numberSignature=(value:string) => (value.match(/\b\d[\d\s.,]*\b/g) ?? []).map(item=>item.replace(/\s+/g,'').replace(/,/g,'.'));
+// Match each number independently. The old [\d\s.,]* pattern consumed whitespace
+// across distinct years (e.g. title ends in 2026, summary starts in 2027),
+// producing a phantom number 20262027 and rejecting source-grounded claims.
+// The numeric grounding gate still rejects numbers absent from the source.
+const numberSignature=(value:string) => (value.match(/\b\d+(?:[.,]\d+)*\b/g) ?? []).map(item=>item.replace(/,/g,'.'));
 const polarityOf=(value:string):'affirmative'|'negative' => negativeAssertionPattern.test(fold(value)) ? 'negative' : 'affirmative';
 const negativeWords=new Set(['nu','fara','niciun','niciunul','dezminte','dezminț','nega','neaga','negat','respinge','respins','contrazice','contrazis','fals']);
 

@@ -2,14 +2,24 @@
 
 **Audit static:** 2026-11-02 | **Sursa oficială:** GitHub main | **Actualizări obligatorii:** [roadmap.md](roadmap.md) + acest fișier + [CHANGELOG.md](CHANGELOG.md) în fiecare PR funcțional.
 
+## CURRENT BLOCKER — R0.2 SEMANTIC PREVIEW, 2026-11-02 14:39 UTC
+
+### R0.2 diagnostic — semantic preview crashes on numeric grounding (2026-11-02 14:39 UTC)
+
+- Production operator executed zero-paid `node apps/worker/claim-pilot.ts --preview --limit=20` on release image `ae489a4`. Process **crashed before report** in `validateSemanticAssertion` (`packages/claims/extractor.ts:199`), error `DeepSeek semantic numeric assertion is not present in the candidate content`. This preview did **not** contain `--paid` or `--apply`; no paid calls authorized and no pilot report was generated.
+- Reproduction from static source: old `numberSignature` regex `/\\b\\d[\\d\\s.,]*\\b/g` admits whitespace between unrelated numeric tokens. SQL title+summary concatenation can consequently turn adjacent `12` and `2027` into nonexistent `122027`, producing a false numeric-grounding rejection. **Exact live candidate not identified yet**; treat this as a confirmed defect in parser logic, plausible explanation of crash rather than proven sole production input.
+- Proposed patch **PR #19 MERGED, DEPLOY PENDING**: tokenize numeric segments independently (no inter-number whitespace concatenation); do not relax absent-number rejection. In the deterministic preview path, if grounding rejects an assertion, return a source-grounded deterministic fallback with diagnostics (possibly a valid testable assertion) and continue with the remaining sample. DeepSeek-sourced claims still require validation.
+- Added regression tests for number boundaries and rejected deterministic assertions; keep `--preview` read-only, paid zero. Once checks pass, merge and deploy controlled; rerun 20-sample before judging true claim recall or proposing new providers.
+- This PR #18 records earlier Claim Radar recovery and reconciles documentation with merged PR #19; keep the two fixes distinct.
 ## FUNCTIONAL VALIDATION — Claim Radar (2026-11-02 14:27:36 UTC)
 
 - **Fix verified in production**: release image `popestiri-app:ae489a489139b92c90686fbf6f0b15d2ea926dc2` (PR #16, merged & deployed); 2 controlled one-shot RSS/discovery worker cycles after deploy, timer resumed and active.
 - First run (14:24:56 UTC): `candidates=250, leads=0, failed=0`; all 250 pre-existing falsely stale checkpoints became **up-to-date**, stale `250 -> 0`. At that snapshot total candidates `8211`, never processed `7961`, up-to-date `250`.
 - Second run (14:27:36 UTC): `candidates=250, leads=250, failed=0, complete=false`, confirming queue advances. DB: `total_candidates=8211`, `never_processed=7711`, `stale=0`, `up_to_date=500`. 250 fewer never processed than the first post-deploy snapshot. The original 7,922 pre-deploy never-processed count grew to 7,961 because 39 additional discovery records arrived before first post-deploy sample.
 - **Remaining editorial blocker:** among 500 `claim_leads`, deterministic_v1 labels: `uncertain=414`, `ordinary_news_event=84`, `entertainment=2`, `testable_claim=0`. This does **not** prove there are zero true checkable claims in source articles. Need manually labeled representative sample and compare extraction/preview before choosing rules vs DeepSeek changes.
-- **NEXT:** allow hourly timer to drain backlog within bounded 250/cycle (new candidates will continue arriving), monitor failures/backlog. Run `node apps/worker/claim-pilot.ts --preview --limit=20` (no `--apply` or `--paid`) for a balanced RSS/YouTube sample, then create gold set. Keep infrastructure and semantic extraction quality as distinct milestones.
+- **NEXT:** keep hourly timer active; the first 20-case preview on ae489a4 crashed with numeric grounding. PR #19 is merged but not deployed. Deploy it in a controlled release and rerun zero-paid `--preview --limit=20`, then create a manually labeled gold set. Keep infrastructure and semantic extraction quality as distinct milestones.
 - **Documentation release caveat:** docs PR generated after release; after merge Git docs may move ahead of the running image SHA. Sync checkout docs safely without recreating application; `APP_VERSION` remains pinned to the deployed ae489a4 image.
+
 ## ULTIMUL DEPLOY OBSERVAT — 2026-11-02 14:19 UTC
 - **MERGED:** PR #16 CI și docs continuity PASSED; merge commit `ae489a489139b92c90686fbf6f0b15d2ea926dc2`.
 - **DEPLOYED / INFRA LIVE VERIFIED de operator:** checkout `ae489a4`; imagine rulată `popestiri-app:ae489a489139b92c90686fbf6f0b15d2ea926dc2`; container API healthy, PostgreSQL healthy și neatins, `/ready` = `{"status":"ok","databaseChecked":true}`, timer RSS repornit/activ. Nicio migrare nouă.
@@ -59,7 +69,7 @@
 ## Next action (P0)
 
 1. **Production queue progression FIX VERIFIED.** Nu mai porni workerul manual doar pentru verificarea timestampului; lasă timerul orar activ și urmărește backlog/failures în următoarele cicluri. Pre-deploy 7.922 never processed; after first run 7.961, second 7.711, `stale=0`.
-2. **R0.2/quality evaluation P0**: preview deterministic pe 20 candidați, reprezentativ RSS/YouTube, fără `--apply`, `--paid`, sau costuri. Analizează manual textul titlului, rezumatul, verificabilitatea, clasificarea și relevanța editorială; definește un gold set și criterii reproducibile.
+2. **R0.2/quality evaluation P0**: previewul pe ae489a4 a eșuat la validare numerică; PR #19 cu fix și CI verde este MERGED dar NOT DEPLOYED. După deploy controlat rulează din nou preview pe 20 candidați, reprezentativ RSS/YouTube, fără `--apply`, `--paid`, sau costuri. Analizează manual textul titlului, rezumatul, verificabilitatea, clasificarea și relevanța editorială; definește un gold set și criterii reproducibile.
 3. **Nu presupune că zero testable_claim reprezintă adevărul.** Poate fi low-recall/poor input quality; e nevoie de sample și etichete. Abia apoi propune schimbări de extractor/semantic pilot și teste prin PR cu docs.
 4. Google Trends are 1 singur candidat și necesită diagnostic separat; continuă R1 query planner/R2 evidence numai după evaluarea detecției.
 5. După merge PR docs, sincronizează checkoutul pe Hetzner fără rebuild/restart; `APP_VERSION` rămâne `ae489a4` dacă PR-ul este doar documentație.

@@ -2,6 +2,12 @@
 
 **Regulă:** istoric append-only. Pentru orice schimbare funcțională, actualizează acest jurnal + [roadmap.md](roadmap.md) + [PROJECT_STATUS.md](PROJECT_STATUS.md) în același PR. Fiecare intrare conține data, milestone, motiv, PR/SHA, teste, deploy și follow-up; nimic nu se declară „deployed” fără dovadă.
 
+## 2026-11-02 14:39 UTC — Fix semantic pilot numeric validation (PR #19 merged; deploy pending)
+- Live preview `--preview --limit=20` on `ae489a4` crashed at `extractor.ts:199` with `DeepSeek semantic numeric assertion is not present in the candidate content`; no report, no paid/apply flags.
+- Cause in parser: whitespace-containing numeric signature regex can conflate distinct numbers separated by a space at field boundaries, creating false numeric grounding failures. Live trigger candidate unknown; deterministic regression added.
+- PR #19 MERGED (`e34f55a`), but NOT deployed: numeric tokens remain distinct and unsupported numbers are still rejected. Invalid deterministic proposals fall back to source-grounded deterministic extraction (which can yield a valid assertion), with diagnostics instead of aborting the preview. Regression tests passed; no DB migrations or paid provider change.
+- Claim Radar queue fix `ae489a4` remains deployed and functionally verified. PR #18 reconciles its documentation with PR #19. Next: deploy PR #19 code via an approved release, rerun zero-paid 20-sample preview and review claim quality.
+
 ## 2026-11-02 14:27 UTC — Claim Radar queue progress verified live (post-deploy docs PR)
 - Two controlled one-shot worker runs after PR #16 release `ae489a4`: first at 14:24:56 UTC `candidates=250,leads=0,failed=0`, state corrected to 250 up-to-date / 0 stale. Second at 14:27:36 UTC `candidates=250,leads=250,failed=0`, proving next batch progresses.
 - DB second snapshot: 8.211 candidates, 500 up-to-date, 7.711 never processed, 0 stale, timer active. New discovery records accounted for increase from original 8.172 to 8.211; no evidence of lost data.
