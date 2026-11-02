@@ -257,7 +257,32 @@ export async function runSemanticClaimPilot(pool:pg.Pool, options:SemanticPilotO
             extractionOrigin='deterministic_fallback';
           }
         }
-        extraction=validateSemanticExtraction(extraction,input(candidate));
+        // Deterministic extraction is only a proposal. If its grounding check
+        // rejects it, fail closed for this candidate instead of aborting the
+        // entire read-only preview and hiding all other sampled results.
+        try {
+          extraction=validateSemanticExtraction(extraction,input(candidate));
+        } catch (validationError) {
+          if(extractionOrigin!=='deterministic' && extractionOrigin!=='deterministic_fallback') throw validationError;
+          if(extractionOrigin==='deterministic') {
+            acceptedExtractions=Math.max(0,acceptedExtractions-1);
+          }
+          if(!deterministicFallback) {
+            deterministicFallback=true;
+            deterministicFallbacks++;
+          }
+          extractionOrigin='deterministic_fallback';
+          fallback='deterministic_grounding_rejected';
+          // Preserve the source headline/evidence, but do not surface an
+          // assertion whose numbers, polarity or attribution cannot be verified.
+          extraction=validateSemanticExtraction({
+            ...extraction,
+            assertions:[],
+            classification:'uncertain',
+            truthfulness:'unassessed',
+            limitations:'Extracția deterministică nu a trecut validarea dovezilor; nicio afirmație nu este acceptată automat. Este necesară revizuire editorială.'
+          },input(candidate));
+        }
       }
       if(cacheHit) extractionOrigin='cache_hit';
       if(apiAttempted) usage=extractionUsage===null ? unknownUsage() : usageTotal(usage,extractionUsage);
