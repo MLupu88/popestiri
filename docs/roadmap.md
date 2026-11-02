@@ -38,6 +38,16 @@ During the documentation PR, 3 discovery tests were found to have stale integrat
 
 ## 2. R0 — Baseline și pilot (P0; execută primul)
 
+### R0.1 — Cauza blocajului confirmată în producție (2026-11-02)
+
+- Din 8.172 discovery candidates, 7.922 nu au fost procesați niciodată în Claim Radar. Cele 250 cu state existent apar toate stale; ultimele șase rulări au raportat constant `candidates=250, leads=0, failed=0, complete=false`.
+- Query read-only de precizie: **250/250 rânduri au `c.updated_at > s.last_candidate_updated_at` cu diferență pozitivă sub 1 ms**; diferență medie 0,4758 ms. Aceasta confirmă că pierderea microsecundelor în interfața Node PostgreSQL este mecanismul de starvation.
+- **Remediere CODED pe branch, NU DEPLOYED:** în `runClaimRadar`, selecția aduce `c.updated_at::text AS updated_at` ca să nu treacă prin JS Date la checkpoint; `markUnchanged` și `persistClaimLead` păstrează astfel microsecundele. Test nou cu fracții de 6 cifre și batch size 1 pentru drain, rerulare zero și update fără recalcularea extracției. Nu sunt migrări.
+- **Gate:** CI typecheck și toate testele trebuie să treacă; apoi merge/deploy controlat, backup conform runbook, smoke și monitorizare câteva rulări. Nu declara rezolvat în producție înainte de reducerea `never_processed` și de dispariția celor 250 falsely stale. 
+- **După fix:** pilotul semantic `--preview --limit=20`, gold set, diagnostic separat pentru Google Trends (numai 1 rezultat).
+
+
+
 ### R0.1 audit LIVE — constatări 2026-11-02
 - **Confirmat:** server `88.99.81.51`, checkout documente `878d81b`, API image `e181e33`, API/DB healthy, `/ready` databaseChecked true, timer RSS activ.
 - **Colectare:** 8.172 discovery candidates (483 în ultimele 24h / 2.687 în 7 zile); Digi24 2.619, G4Media 2.571, HotNews 1.912, YouTube 1.069, Trends 1. Ultimele 10 discovery runs sunt succeeded.
@@ -147,7 +157,7 @@ During the documentation PR, 3 discovery tests were found to have stale integrat
 
 | ID | Milestone/PR | Stare |
 |---|---|---|
-| P0-01 | Audit live parțial + diagnostic Claim Radar + pilot 20 | IN PROGRESS — P0 BLOCKER |
+| P0-01 | Audit live + fix precizie timestamp Claim Radar + pilot 20 | FIX CODED; CI & DEPLOY PENDING |
 | P0-02 | Gold set + evaluare extraction | TODO |
 | P0-03 | Calibrare DeepSeek, doar dacă e justificată | TODO |
 | P0-04 | Claim normalization/semantic matching | TODO |
