@@ -2,6 +2,14 @@
 
 **Audit static:** 2026-11-02 | **Sursa oficială:** GitHub main | **Actualizări obligatorii:** [roadmap.md](roadmap.md) + acest fișier + [CHANGELOG.md](CHANGELOG.md) în fiecare PR funcțional.
 
+## PRODUCT DIRECTION UPDATED — social-first, autonomous fact checking (2026-11-02)
+
+- **Owner request:** TikTok / Facebook / YouTube sunt prioritare pentru descoperire și măsurarea recirculării afirmațiilor. RSS rămâne sursă secundară de context și dovezi; accesul TikTok/Meta editorial **nu este încă implementat**. YouTube API este singura sursă socială live observată; nu există acces universal la postări, audio sau transcript.
+- **Nu mai presupunem aprobarea manuală pentru fiecare caz.** Target: motor de dovezi + gate automat cu publicare justificată, `hold_for_exception` / `no_verdict` în situații insuficiente, audit/correctii și shadow-mode de test înainte de publicare automată. O simplă apreciere LLM a „încrederii” nu este suficientă.
+- **Status REAL:** repo main la `e87df4c`, imagine construită și pilot `--preview --limit=20` complet: 20 cazuri, 3 testable, 13 uncertain, 3 ordinary, 1 entertainment, 0 paid calls; **nu s-a demonstrat deploy API `e87df4c` sau vreun verdict**. Claim Radar queue fix `ae489a4` funcțional în producție. Pilotul este doar detecție, nu verificare factuală.
+- **NEXT P0:** proiectarea și implementarea P0-S1/S2 (surse sociale autorizate, query-planner YouTube, strat de adaptoare TikTok/Facebook care raportează `unavailable` până la drepturi), apoi evidence engine și gate autonom. Nu activa automat publish înainte de validare pe gold set.
+- **Document de referință:** [SOCIAL_FIRST_AUTONOMOUS_FACTCHECK_2026-11-02.md](SOCIAL_FIRST_AUTONOMOUS_FACTCHECK_2026-11-02.md).
+
 ## CURRENT BLOCKER — R0.2 SEMANTIC PREVIEW, 2026-11-02 14:39 UTC
 
 ### R0.2 diagnostic — semantic preview crashes on numeric grounding (2026-11-02 14:39 UTC)
