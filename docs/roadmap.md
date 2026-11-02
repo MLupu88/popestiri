@@ -30,13 +30,22 @@ PopeȘtiri nu este un agregator de știri sau un produs de community submissions
 | R4 | PDF A4, media rights, Epson print agent | **TODO** | contract/spec ≠ funcțional |
 | R5 | Ediție zilnică end-to-end | **TODO** | timer RSS ≠ ediție |
 
-**Repository main** verificat: `e181e3329c5ba4498478b501e9ef6d8d4a8261ce` (PR #13 merge, 2026-10-13). **Producție** observată ultima dată 2026-10-13, NU reverificată la auditul 2026-11-02. Vezi [PROJECT_STATUS.md](PROJECT_STATUS.md).
+**Versiuni la audit live 2026-11-02:** GitHub main și checkout Hetzner `878d81b3eeae8305ff06870e8ac49028cf6b17b9` (PR #14 merged), API Docker / APP_VERSION `e181e3329c5ba4498478b501e9ef6d8d4a8261ce`. API/DB healthy, /ready OK, RSS active. Vezi [LIVE_AUDIT_2026-11-02.md](LIVE_AUDIT_2026-11-02.md).
 
 ### PR #14 CI reliability note (2026-11-02)
 
-During the documentation PR, 3 discovery tests were found to have stale integration fixture timestamps fixed at 2026-10-11; the product's rolling seven-day grouping correctly excludes them in November. Integration test fixture now uses observedAt relative to the run date. Production grouping logic was not changed. CI rerun must pass before merge.
+During the documentation PR, 3 discovery tests were found to have stale integration fixture timestamps fixed at 2026-10-11; the product's rolling seven-day grouping correctly excludes them in November. Integration test fixture now uses observedAt relative to the run date. Production grouping logic was not changed. CI rerun PASSED, PR #14 MERGED.
 
 ## 2. R0 — Baseline și pilot (P0; execută primul)
+
+### R0.1 audit LIVE — constatări 2026-11-02
+- **Confirmat:** server `88.99.81.51`, checkout documente `878d81b`, API image `e181e33`, API/DB healthy, `/ready` databaseChecked true, timer RSS activ.
+- **Colectare:** 8.172 discovery candidates (483 în ultimele 24h / 2.687 în 7 zile); Digi24 2.619, G4Media 2.571, HotNews 1.912, YouTube 1.069, Trends 1. Ultimele 10 discovery runs sunt succeeded.
+- **BLOCAJ P0 înainte de R0.2/R1:** numai 250 claim leads, zero în ultimele 7 zile, zero testable_claim; 210 uncertain/38 ordinary_news_event/2 entertainment, toate deterministic. **Cauză neconfirmată; se impune diagnostic read-only** pentru state și run audit, vezi [LIVE_AUDIT_2026-11-02.md](LIVE_AUDIT_2026-11-02.md).
+- **Nu se declară R0.1 complete** până ce cauza celor 250 lead-uri este investigată; health/discovery success ≠ claim pipeline functional.
+- **Google Trends 1 rezultat** investigat separat. Nu implementa API social/Tavily înainte de stabilirea backlogului de extragere.
+
+
 
 **R0.1 Audit read-only live:** SHA Git și imaginea Docker, /health și /ready, migrări, timer systemd, loguri, număr de articole și candidați, surse active, YouTube configurat (fără afișarea cheii). Separă codul de comportamentul live.
 
@@ -138,7 +147,7 @@ During the documentation PR, 3 discovery tests were found to have stale integrat
 
 | ID | Milestone/PR | Stare |
 |---|---|---|
-| P0-01 | Audit read-only prod + pilot 20 | TODO |
+| P0-01 | Audit live parțial + diagnostic Claim Radar + pilot 20 | IN PROGRESS — P0 BLOCKER |
 | P0-02 | Gold set + evaluare extraction | TODO |
 | P0-03 | Calibrare DeepSeek, doar dacă e justificată | TODO |
 | P0-04 | Claim normalization/semantic matching | TODO |
