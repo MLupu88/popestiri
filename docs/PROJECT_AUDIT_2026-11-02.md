@@ -21,6 +21,10 @@
 | Daily edition | contracte stage/edition, timer RSS | timerul RSS NU produce ediția zilnică |
 | CI | .github/workflows/ci.yml | typecheck + teste; inițial fără continuity guard |
 
+## Audit CI al PR #14
+
+Run GitHub Actions 41447796071 (2026-11-02) a rulat 68 teste, 65 passed, 3 failed în `tests/discovery.test.ts` la testele de grupare: fixture datat fix 2026-10-11 în timp ce query-ul de producție consideră numai ultimele 7 zile. Cauza este test-only, **nu dovadă de regresie în runtime**. S-a propus fix numai al fixture-ului din test și trebuie verificat prin CI. Guardul `Project docs continuity` a trecut.
+
 ## Gap-uri critice
 
 **G1 P0:** Nu avem metrici de calitate ale extracției semantice; preview-ul pe 20 candidați a rămas neconfirmat. Construiește gold-set și evaluare manuală.
