@@ -2,6 +2,12 @@
 
 **Regulă:** istoric append-only. Pentru orice schimbare funcțională, actualizează acest jurnal + [roadmap.md](roadmap.md) + [PROJECT_STATUS.md](PROJECT_STATUS.md) în același PR. Fiecare intrare conține data, milestone, motiv, PR/SHA, teste, deploy și follow-up; nimic nu se declară „deployed” fără dovadă.
 
+## 2026-11-02 14:39 UTC — Fix semantic pilot numeric validation (functional PR, CI pending)
+- Live preview `--preview --limit=20` on `ae489a4` crashed at `extractor.ts:199` with `DeepSeek semantic numeric assertion is not present in the candidate content`; no report, no paid/apply flags.
+- Cause in parser: whitespace-containing numeric signature regex can conflate distinct numbers separated by a space at field boundaries, creating false numeric grounding failures. Live trigger candidate unknown; deterministic regression added.
+- Code changes (not merged or deployed): preserve distinct numbers with strict numeric grounding; fail closed per deterministic preview candidate to `uncertain` / zero assertions with explicit diagnostics rather than abort whole preview. Regression tests, no DB migrations and no paid provider change.
+- Current production Claim Radar queue fix `ae489a4` remains deployed and functional. PR #18 for queue-status docs is separate and open. Next: CI then release of this patch followed by 20-sample preview and editorial review.
+
 ## 2026-11-02 14:19 UTC — Release ae489a4 deploy în producție (verificare funcțională PENDING)
 - PR #16 integrat, SHA `ae489a489139b92c90686fbf6f0b15d2ea926dc2`, CI/typecheck și docs continuity PASS.
 - Operatorul a verificat checkout la ae489a4, imagine Docker nouă built, API recreated doar `api` la SHA ae489a4 healthy, PostgreSQL healthy fără restart, `/ready` status ok/databaseChecked true, timer RSS repornit; nicio migrare nouă.
