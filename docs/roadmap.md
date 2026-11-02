@@ -38,6 +38,15 @@ During the documentation PR, 3 discovery tests were found to have stale integrat
 
 ## 2. R0 — Baseline și pilot (P0; execută primul)
 
+### R0.1 — Functional validation COMPLETE for queue progress (2026-11-02 14:27 UTC)
+
+- Release `ae489a4` (PR #16) installed. At 14:24:56 UTC the first one-shot worker cycle processed `250` stale candidates with `leads=0,failed=0` and corrected all 250 checkpoints (`stale=0`).
+- At 14:27:36 UTC the next cycle ran with `candidates=250,leads=250,failed=0,complete=false`. Post-run SQL: **8.211 discovery candidates; 500 up to date; 7.711 never processed; 0 stale**. Thus progress is REAL and timestamp starvation is FIXED IN PRODUCTION.
+- Content evaluation remains a P0 blocker, **not** an infrastructure blocker: 500 claim leads, 414 `uncertain`, 84 `ordinary_news_event`, 2 `entertainment`, **0 `testable_claim`**. Need representative gold set before judging false negatives and improving recall.
+- Continue default hourly timer with bounded batches (250 per cycle), not an unlimited paid/backfill run; watch backlog as additional items arrive.
+- **Next quality gate (R0.2):** deterministic semantic `--preview --limit=20` without `--apply`/`--paid`, review 20 with true/false checkability labels, preserve source provenance and error taxonomy; DeepSeek only after editorial pilot approval.
+
+
 ### R0.1 — Release AE489A4: deployed, worker verification pending (2026-11-02)
 
 - PR #16 / CI trecut → merge `ae489a489139b92c90686fbf6f0b15d2ea926dc2`; operatorul a construit imaginea și a făcut deploy pe Hetzner. API healthy, DB healthy, `/ready` OK, timer RSS activ; fără migrări.
@@ -167,7 +176,7 @@ During the documentation PR, 3 discovery tests were found to have stale integrat
 
 | ID | Milestone/PR | Stare |
 |---|---|---|
-| P0-01 | Audit live + fix precizie timestamp Claim Radar + pilot 20 | DEPLOYED ae489a4; WORKER VERIFICATION PENDING |
+| P0-01 | Audit live + fix timestamp Claim Radar | DONE: FUNCTIONALLY VERIFIED 2026-11-02 14:27 UTC |
 | P0-02 | Gold set + evaluare extraction | TODO |
 | P0-03 | Calibrare DeepSeek, doar dacă e justificată | TODO |
 | P0-04 | Claim normalization/semantic matching | TODO |
