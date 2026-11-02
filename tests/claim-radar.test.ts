@@ -132,6 +132,36 @@ test('historical candidates create claim leads idempotently and preserve source/
   } finally {await db.close();}
 });
 
+test('Claim Radar does not starve on microsecond timestamps and drains the queue',async()=>{
+  const db=new PGlite();
+  try {
+    const pool=await poolFor(db);
+    await pool.query(`INSERT INTO discovery_candidates(id,source_id,source_kind,source_name,original_url,canonical_url,title,observed_at,updated_at) VALUES
+      ('precision-a','rss-hotnews','rss','HotNews','https://hotnews.example/precision-a','https://hotnews.example/precision-a','Primul semnal','2026-11-02T13:00:11Z','2026-11-02T13:00:11.123456Z'),
+      ('precision-b','rss-hotnews','rss','HotNews','https://hotnews.example/precision-b','https://hotnews.example/precision-b','Al doilea semnal','2026-11-02T13:00:11Z','2026-11-02T13:00:11.654321Z')`);
+    let calls=0;
+    const provider={method:'deterministic_v1' as const,extract:async (item:ClaimExtractionInput)=>{calls++;return deterministicExtract(item);}};
+    const options={provider,batchSize:1};
+    const a=await runClaimRadar(pool,options);
+    assert.equal(a.candidates,1); assert.equal(a.leads,1); assert.equal(a.failed,0);
+    const equalA=(await pool.query(`SELECT (c.updated_at=s.last_candidate_updated_at) AS equal FROM discovery_candidates c JOIN claim_radar_candidate_state s ON s.candidate_id=c.id WHERE c.id='precision-a'`)).rows[0] as {equal:boolean};
+    assert.equal(equalA.equal,true,'checkpoint must match the full six-digit PostgreSQL timestamp');
+    const b=await runClaimRadar(pool,options);
+    assert.equal(b.candidates,1,'second candidate must not be starved by precision loss'); assert.equal(b.leads,1);
+    const equalB=(await pool.query(`SELECT (c.updated_at=s.last_candidate_updated_at) AS equal FROM discovery_candidates c JOIN claim_radar_candidate_state s ON s.candidate_id=c.id WHERE c.id='precision-b'`)).rows[0] as {equal:boolean};
+    assert.equal(equalB.equal,true);
+    const exhausted=await runClaimRadar(pool,options);
+    assert.equal(exhausted.candidates,0); assert.equal(exhausted.complete,true); assert.equal(calls,2);
+    // Metadata-free update: checkpoint advances without unnecessary extraction.
+    await pool.query(`UPDATE discovery_candidates SET updated_at='2026-11-02T13:00:12.987654Z' WHERE id='precision-a'`);
+    const refreshed=await runClaimRadar(pool,options);
+    assert.equal(refreshed.candidates,1);assert.equal(refreshed.leads,0);assert.equal(refreshed.failed,0);
+    assert.equal(calls,2);
+    const equalRefresh=(await pool.query(`SELECT (c.updated_at=s.last_candidate_updated_at) AS equal FROM discovery_candidates c JOIN claim_radar_candidate_state s ON s.candidate_id=c.id WHERE c.id='precision-a'`)).rows[0] as {equal:boolean};
+    assert.equal(equalRefresh.equal,true);
+    assert.equal((await runClaimRadar(pool,options)).candidates,0);
+  } finally {await db.close();}
+});
 test('manual Social Intake keeps validated Facebook, TikTok and YouTube platforms in claim provenance',async()=>{
   const db=new PGlite();
   try {
