@@ -13,6 +13,7 @@
     "ingest": "node apps/worker/ingest.ts",
     "discovery:validate": "node apps/worker/validate-discovery.ts",
     "social:preview": "node apps/worker/social-discovery-preview.ts --preview",
+    "youtube:description-preview": "node apps/worker/youtube-description-preview.ts",
     "claims:pilot": "node apps/worker/claim-pilot.ts",
     "db:migrate": "node packages/db/migrate.ts",
     "start:api": "node apps/web/server.ts"
