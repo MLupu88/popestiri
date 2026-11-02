@@ -34,22 +34,26 @@
 ## CI / PR #14 — FINAL
 2026-11-02: PR #14 MERGED, checks CI test + Project docs continuity PASSED; corecție exclusiv fixture temporal în discovery tests; docs sincronizate pe Hetzner, imaginea API nu a fost schimbată.
 
+## DIAGNOSTIC CONFIRMAT: timestamp precision starvation (2026-11-02)
+
+- **7.922/8.172 never processed; 250/250 state entries show positive <1 ms mismatch** between `discovery_candidates.updated_at` and `claim_radar_candidate_state.last_candidate_updated_at` (mean 0.4758 ms). Last 6 worker runs: exactly 250 candidates and zero leads/failed each time. Mechanism: PostgreSQL timestamptz microseconds truncated via pg JavaScript Date millisecond resolution.
+- Fix **CODED, not merged/deployed** on branch `fix/claim-radar-timestamp-precision-20261102`: preserve original DB timestamp as `c.updated_at::text AS updated_at` before writing processing checkpoints; focused regression test for queue progression and refresh without re-extraction. NO migrations, NO server changes. CI status to confirm.
+- [Production evidence](LIVE_AUDIT_2026-11-02.md).
+
 ## Next action (P0)
 
-1. **P0: Diagnostic read-only Claim Radar** pe Hetzner cu SQL din [LIVE_AUDIT_2026-11-02.md](LIVE_AUDIT_2026-11-02.md): numărul candidaților neprocesați, starea `claim_radar_candidate_state`, checkpoint, `audit_events.after_value->'claimRadar'` pentru ultimele rulari. Nu schimba cod, batch size, SQL sau cron înainte de diagnostic.
-2. Investighează Google Trends `adapter_results` / erori doar dacă sunt sanitizate.
-3. Execută pilotul deterministic `--preview --limit=20` fără paid calls; colectează raportul și etichetează cazurile.
-3. Fă gold set / metrici; abia apoi calibrare DeepSeek.
-4. Construiește R1 claim-based query planner + auto social/public-index permitted + ranking explicabil.
-5. Construiește R2 Tavily/evidence și primul debunking validat.
-6. R3 pagină publică; R4 PDF/print; R5 autonomie zilnică.
+1. CI typecheck + test (including regression) și review pe PR-ul de fix pentru microsecunde. Nu merge dacă este roșu.
+2. După merge, deploy controlat numai PopeȘtiri, fără modificări în alte stackuri. `APP_VERSION` trebuie să corespundă noului SHA, cu backup/verificări /ready și RSS.
+3. După deploy, monitorizează două-trei rulări: rândurile `never_processed` trebuie să scadă, starea `falsely_stale` trebuie să dispară și `leads` să crească. Evită backfill nelimitat pe serverul partajat; nu activa DeepSeek plătit.
+4. Actualizează roadmap/status/changelog prin PR post-deploy cu SHA și date reale; sincronizează docs pe Hetzner.
+5. R0.2: semantic pilot deterministic pe 20 și gold set; apoi investighează separat Google Trends și continuă R1/R2.
 
 ## Stare milestone
 
 | ID | Stare | Următor pas |
 |---|---|---|
 | M0.1–M0.3C.1.1 | LIVE VERIFIED partial | 8.172 discovery, 10 runs succeeded, Google Trends 1 candidat |
-| M0.3C.2A | CODE IMPLEMENTED / LIVE BLOCKED | 250 leads, 0 noi în 7 zile; diagnostic queue/state/run logs |
+| M0.3C.2A | LIVE BLOCKED; FIX CODED / NOT DEPLOYED | microseconds truncation 250/250, 7.922 backlog; merge+deploy+validation pending |
 | M0.3C.2A.1 | CODE IMPLEMENTED / PILOT NOT EVALUATED | preview 20 |
 | R1 Viral Discovery | TODO | query planner |
 | R2 Evidence/Tavily | TODO | evidence connector |
